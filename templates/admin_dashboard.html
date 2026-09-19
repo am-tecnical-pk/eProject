@@ -508,8 +508,8 @@
                 </div>
                 <div>
                     <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:6px;">Assigned Instructor</label>
-                    <select class="form-select" id="batchTeacher" style="width:100%;padding:10px 14px;border:1px solid #D1D5DB;border-radius:8px;font-size:14px;background:#ffffff;box-sizing:border-box;">
-                        <option value="">-- Unassigned --</option>
+                    <select class="form-select" id="batchTeacher" required style="width:100%;padding:10px 14px;border:1px solid #D1D5DB;border-radius:8px;font-size:14px;background:#ffffff;box-sizing:border-box;">
+                        <option value="">-- Select Instructor --</option>
                     </select>
                 </div>
             </div>
@@ -629,8 +629,9 @@
 <!-- ================= JAVASCRIPT LOGIC ================= -->
 <script>
 const API = '/api/admin';
+let allTeachers = [];
+let windowBatches = [];
 
-// Helper to robustly select dropdown options even with mismatched types (int vs string)
 function setDropdownValue(selectId, value) {
     const sel = document.getElementById(selectId);
     if (!sel) return;
@@ -643,7 +644,7 @@ function setDropdownValue(selectId, value) {
             break;
         }
     }
-    if (!found) sel.value = ''; // fallback to unassigned
+    if (!found) sel.selectedIndex = 0;
 }
 
 function showAlert(msg, type='success') {
@@ -818,6 +819,7 @@ document.getElementById('userForm').addEventListener('submit', async function(e)
             closeModal('userModal');
             loadUsers();
             loadOverview();
+            loadTeachers();
         } else {
             showAlert(d.message || 'Unable to store user', 'error');
         }
@@ -856,25 +858,48 @@ async function loadStudents() {
     }
 }
 
-// ================= BATCHES & CHECKLIST =================
+// ================= BATCHES & INSTRUCTORS FIX =================
 async function loadTeachers() {
     try {
         const res = await fetch(API + '/teachers', { cache: 'no-store' });
         const d = await res.json();
-        if (d.success && d.teachers) {
-            const sel = document.getElementById('batchTeacher');
-            const currentVal = sel.value; // Store value to persist across UI refreshes
-            let htmlOptions = '<option value="">-- Unassigned --</option>';
-            d.teachers.forEach(t => {
-                const tid = t.id || t._id;
-                htmlOptions += `<option value="${tid}">${t.name}</option>`;
-            });
-            sel.innerHTML = htmlOptions;
-            if (currentVal) {
-                setDropdownValue('batchTeacher', currentVal);
+        if (d.success && d.teachers && d.teachers.length > 0) {
+            allTeachers = d.teachers;
+        } else {
+            // Robust Fallback: Agar teachers route empty ho toh users se filter karein
+            const uRes = await fetch(API + '/users', { cache: 'no-store' });
+            const uData = await uRes.json();
+            if (uData.success && uData.users) {
+                allTeachers = uData.users.filter(u => String(u.role).toLowerCase() === 'teacher');
             }
         }
-    } catch(e) {}
+        populateTeacherDropdown();
+    } catch(e) {
+        console.warn('Teacher loading warning:', e);
+    }
+}
+
+function populateTeacherDropdown() {
+    const sel = document.getElementById('batchTeacher');
+    if (!sel) return;
+    const currentVal = sel.value;
+    let htmlOptions = '<option value="">-- Select Instructor --</option>';
+    allTeachers.forEach(t => {
+        const tid = t.id || t._id;
+        htmlOptions += `<option value="${tid}">${t.name}</option>`;
+    });
+    sel.innerHTML = htmlOptions;
+    if (currentVal) {
+        setDropdownValue('batchTeacher', currentVal);
+    }
+}
+
+async function ensureTeachersLoaded() {
+    if (!allTeachers || allTeachers.length === 0) {
+        await loadTeachers();
+    } else {
+        populateTeacherDropdown();
+    }
 }
 
 async function loadBatches() {
@@ -886,6 +911,7 @@ async function loadBatches() {
             tb.innerHTML = '<tr><td colspan="5" class="text-center" style="padding:32px;color:#9CA3AF;">No cohorts initialized.</td></tr>';
             return;
         }
+        windowBatches = d.batches;
         tb.innerHTML = d.batches.map(b => `
             <tr style="border-bottom:1px solid #F3F4F6;">
                 <td style="padding:12px 14px;color:#6B7280;font-family:monospace;">#${b.id || b._id}</td>
@@ -895,7 +921,7 @@ async function loadBatches() {
                     <span style="background:#F3F4F6;color:#374151;padding:3px 10px;border-radius:10px;font-weight:700;font-size:12px;">${b.student_count || 0}</span>
                 </td>
                 <td style="padding:12px 14px;text-align:right;">
-                    <button class="btn btn-sm" onclick='openBatchModal(${JSON.stringify(b).replace(/'/g, "&#39;")})' style="margin-right:6px;padding:4px 10px;border:1px solid #D1D5DB;background:#ffffff;border-radius:4px;cursor:pointer;">Edit</button>
+                    <button class="btn btn-sm" onclick="editBatch('${b.id || b._id}')" style="margin-right:6px;padding:4px 10px;border:1px solid #D1D5DB;background:#ffffff;border-radius:4px;cursor:pointer;">Edit</button>
                     <button class="btn btn-sm" onclick="openBatchStudentsModal('${b.id || b._id}', '${b.name.replace(/'/g, "\\'")}')" style="margin-right:6px;padding:4px 10px;border:1px solid #1677FF;background:#1677FF;color:#ffffff;border-radius:4px;cursor:pointer;">Assign</button>
                     <button class="btn btn-sm" onclick="deleteBatch('${b.id || b._id}')" style="padding:4px 10px;border:1px solid #FECACA;background:#FEF2F2;color:#DC2626;border-radius:4px;cursor:pointer;">Delete</button>
                 </td>
@@ -906,15 +932,42 @@ async function loadBatches() {
     }
 }
 
-function openBatchModal(b=null) {
-    document.getElementById('editBatchId').value = b ? (b.id || b._id) : '';
-    document.getElementById('batchName').value = b ? b.name : '';
+function editBatch(batchId) {
+    const b = (windowBatches || []).find(x => String(x.id || x._id) === String(batchId));
+    openBatchModal(b);
+}
+
+async function openBatchModal(b=null) {
+    await ensureTeachersLoaded();
+    const idField = document.getElementById('editBatchId');
+    const nameField = document.getElementById('batchName');
+    const teacherSelect = document.getElementById('batchTeacher');
     
-    // Safely assign faculty to the dropdown avoiding int/string DOM mapping issues
-    const targetTid = b ? (b.teacher_id || '') : '';
-    setDropdownValue('batchTeacher', targetTid);
-    
-    document.getElementById('batchModalTitle').textContent = b ? 'Modify Batch Configuration' : 'Create Batch Cohort';
+    if (b) {
+        idField.value = b.id || b._id || '';
+        nameField.value = b.name || '';
+        document.getElementById('batchModalTitle').textContent = 'Modify Batch Configuration';
+        
+        // Match both ID and Teacher Name to prevent wrong fallback selection
+        const targetTid = String(b.teacher_id || '');
+        const targetName = String(b.teacher_name || '').trim().toLowerCase();
+        let matched = false;
+        
+        for (let i = 0; i < teacherSelect.options.length; i++) {
+            const opt = teacherSelect.options[i];
+            if (opt.value && (String(opt.value) === targetTid || opt.text.trim().toLowerCase() === targetName)) {
+                teacherSelect.selectedIndex = i;
+                matched = true;
+                break;
+            }
+        }
+        if (!matched) teacherSelect.selectedIndex = 0;
+    } else {
+        idField.value = '';
+        nameField.value = '';
+        teacherSelect.selectedIndex = 0; // Default remains "-- Select Instructor --"
+        document.getElementById('batchModalTitle').textContent = 'Create Batch Cohort';
+    }
     openModal('batchModal');
 }
 
@@ -938,12 +991,31 @@ async function deleteBatch(id) {
 
 document.getElementById('batchForm').addEventListener('submit', async function(e) {
     e.preventDefault();
-    const id = document.getElementById('editBatchId').value;
+    const id = document.getElementById('editBatchId').value.trim();
+    const name = document.getElementById('batchName').value.trim();
+    const teacher_id = document.getElementById('batchTeacher').value.trim();
+
+    if (!name) {
+        showAlert('Batch Name likhna zaroori hai.', 'error');
+        return;
+    }
+    if (!teacher_id) {
+        showAlert('Barah-e-karam koi Instructor zaroor select karein.', 'error');
+        return;
+    }
+
     const payload = {
-        name: document.getElementById('batchName').value,
-        teacher_id: document.getElementById('batchTeacher').value || null
+        name: name,
+        batch_name: name,
+        cohort_name: name,
+        teacher_id: teacher_id,
+        instructor_id: teacher_id,
+        assigned_instructor: teacher_id
     };
-    if (id) payload.id = id;
+    if (id) {
+        payload.id = id;
+        payload.batch_id = id;
+    }
 
     try {
         const res = await fetch(API + '/batches', {
@@ -953,7 +1025,7 @@ document.getElementById('batchForm').addEventListener('submit', async function(e
         });
         const d = await res.json();
         if (d.success) {
-            showAlert(d.message || 'Batch updated');
+            showAlert(d.message || (id ? 'Batch configuration updated successfully!' : 'Batch cohort created!'));
             closeModal('batchModal');
             loadBatches();
             loadAssignmentsSelect();
@@ -1050,7 +1122,7 @@ async function loadAssignmentsSelect() {
         const d = await res.json();
         if (d.success && d.batches) {
             const sel = document.getElementById('asgBatch');
-            const currentVal = sel.value; // Store state
+            const currentVal = sel.value;
             let htmlOptions = '<option value="">-- Select Batch --</option>';
             d.batches.forEach(b => {
                 const bid = b.id || b._id;
@@ -1436,6 +1508,8 @@ async function deleteReport(id) {
             showAlert('Report archived');
             loadReports();
             loadOverview();
+        } else {
+            showAlert(d.message || 'Action failed', 'error');
         }
     } catch(e) {
         showAlert('Network error deleting report', 'error');

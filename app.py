@@ -385,6 +385,7 @@ def login():
         return render_template("login.html", error="Invalid institutional credentials.")
     return render_template("login.html")
 
+
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
@@ -523,7 +524,6 @@ def upload_dataset():
             except Exception as e:
                 print(f"Dataset insert warning: {e}")
 
-        # Automated Email Trigger on Ingestion
         send_alert = request.form.get("send_alert") == "true" or request.form.get("send_alert") is True
         alert_email = request.form.get("alert_email") or get_target_email(role="administrator")
 
@@ -935,7 +935,6 @@ def admin_overview():
 # ============================================================
 # BATCH PARTITION MANAGEMENT (ADMIN)
 # ============================================================
-
 @app.route("/api/admin/batches", methods=["GET", "POST", "PUT", "DELETE"])
 @role_required(["administrator"])
 def manage_batches():
@@ -958,12 +957,10 @@ def manage_batches():
         data = request.get_json() or {}
         if _db_ok():
             batch_id = _next_id(batches_col)
-            # FIX: Resolve teacher string name to ID properly robust to missing 'id' fields
-            tid = data.get("teacher_id") or data.get("instructor_id") or data.get("assigned_instructor")
-            teacher = _find_user_by_id(tid)
-            if teacher:
-                tid = teacher.get("id") or str(teacher.get("_id"))
-            tid = _normalize_id(tid)
+            raw_tid = data.get("teacher_id") or data.get("instructor_id") or data.get("assigned_instructor") or data.get("teacher")
+            
+            teacher = _find_user_by_id(raw_tid)
+            tid = teacher.get("id") if teacher else _normalize_id(raw_tid)
 
             batches_col.insert_one({
                 "id": batch_id,
@@ -978,17 +975,14 @@ def manage_batches():
     elif request.method == "PUT":
         data = request.get_json() or {}
         if _db_ok():
-            # FIX: Resolve teacher string name to ID properly robust to missing 'id' fields
-            tid = data.get("teacher_id") or data.get("instructor_id") or data.get("assigned_instructor")
-            teacher = _find_user_by_id(tid)
-            if teacher:
-                tid = teacher.get("id") or str(teacher.get("_id"))
-            tid = _normalize_id(tid)
+            raw_tid = data.get("teacher_id") or data.get("instructor_id") or data.get("assigned_instructor") or data.get("teacher")
+            
+            teacher = _find_user_by_id(raw_tid)
+            tid = teacher.get("id") if teacher else _normalize_id(raw_tid)
             
             batch_id = _normalize_id(data.get("id") or data.get("_id") or data.get("batch_id"))
             name = data.get("name") or data.get("batch_name") or data.get("cohort_name")
             
-            # Robust ID matching for Batch Updates
             batches_col.update_one(
                 {"$or": [{"id": batch_id}, {"id": str(batch_id)}, {"_id": _safe_object_id(batch_id)}]},
                 {"$set": {"name": name, "teacher_id": tid}}
@@ -1003,7 +997,7 @@ def manage_batches():
             student_batches_col.delete_many({"$or": [{"batch_id": batch_id}, {"batch_id": str(batch_id)}, {"batch_id": _safe_object_id(batch_id)}]})
             return jsonify({"success": True, "message": "Batch partition dismantled."})
         return jsonify({"success": True, "message": "Batch deleted."})
-
+    
 
 @app.route("/api/admin/batch-students", methods=["POST", "DELETE"])
 @role_required(["administrator"])
@@ -1461,6 +1455,10 @@ def submit_assignment():
     return jsonify({"success": True, "message": "Assignment submitted."})
 
 
+# ============================================================
+# FIXED STUDENT RISK EVALUATION ROUTE
+# ============================================================
+
 @app.route("/api/student/refresh-risk", methods=["POST"])
 @role_required(["student"])
 def refresh_student_risk():
@@ -1468,6 +1466,18 @@ def refresh_student_risk():
     s_query = _id_query(student_id)
 
     marks_records = list(student_marks_col.find({"student_id": s_query, "status": "graded"}))
+    ed_rec = educational_records_col.find_one({"student_id": s_query}, sort=[("_id", -1)])
+
+    # FIX: Agar student ka koi graded assignment ya educational record nahi hai,
+    # toh dummy prediction insert mat karo aur empty baseline return karo.
+    if not marks_records and not ed_rec:
+        return jsonify({
+            "success": True,
+            "risk": "Not Evaluated",
+            "confidence": 0.0,
+            "message": "Abhi tak koi academic records ya graded coursework mojood nahi hai."
+        })
+
     if marks_records:
         total_obtained = sum(float(m.get("obtained_marks", 0)) for m in marks_records)
         total_possible = 0
@@ -1476,9 +1486,8 @@ def refresh_student_risk():
             total_possible += float(assign.get("total_marks", 100)) if assign else 100
         marks = (total_obtained / total_possible * 100) if total_possible > 0 else 75.0
     else:
-        marks = 70.0
+        marks = float(ed_rec.get("marks", 70.0)) if ed_rec and ed_rec.get("marks") is not None else 70.0
 
-    ed_rec = educational_records_col.find_one({"student_id": s_query}, sort=[("_id", -1)])
     attendance = float(ed_rec.get("attendance", 80.0)) if ed_rec else 80.0
     lms = float(ed_rec.get("lms_activity", 75.0)) if ed_rec else 75.0
     prev = float(ed_rec.get("previous_performance", marks)) if ed_rec else marks
@@ -1500,6 +1509,24 @@ def refresh_student_risk():
     })
 
     return jsonify({"success": True, "risk": result["risk"], "confidence": result.get("confidence", 0.85)})
+
+
+@app.route("/api/student/clear-predictions", methods=["POST", "DELETE"])
+@role_required(["student", "administrator"])
+def clear_student_predictions():
+    student_id = session.get("user_id")
+    s_query = _id_query(student_id)
+    if _db_ok():
+        try:
+            all_sids = [str(s) for s in s_query.get("$in", [])] + s_query.get("$in", [])
+            result = predictions_col.delete_many({"student_id": {"$in": all_sids}})
+            return jsonify({
+                "success": True,
+                "message": f"Prediction history cleared ({result.deleted_count} records removed)."
+            })
+        except Exception as e:
+            return jsonify({"success": False, "message": str(e)}), 500
+    return jsonify({"success": False, "message": "Database offline."}), 500
 
 
 @app.route("/api/student/request-counseling", methods=["POST"])
@@ -1544,6 +1571,7 @@ def request_counseling():
     except Exception as e:
         print(f"Counseling route exception: {e}")
         return jsonify({"success": False, "message": str(e)}), 500
+
 
 # ============================================================
 # MAPREDUCE & BIG DATA ENGINE (ANALYST STUDIO)
@@ -2180,6 +2208,7 @@ def get_all_alerts():
     alerts = list(alerts_col.find(query).sort("_id", -1))
     return jsonify({"success": True, "alerts": _to_dicts(alerts)})
 
+
 @app.route("/api/analytics/alerts/acknowledge-all", methods=["POST"])
 @login_required
 def acknowledge_all_alerts():
@@ -2218,6 +2247,7 @@ def acknowledge_all_alerts():
     except Exception as e:
         print(f"Acknowledge all error: {e}")
         return jsonify({"success": False, "message": str(e)}), 500
+
 
 @app.route("/api/analytics/system-status", methods=["GET"])
 @login_required
@@ -2328,6 +2358,7 @@ def admin_manage_marks():
             return jsonify({"success": True, "message": "Mark record purged."})
         return jsonify({"success": True, "message": "Mark deleted."})
 
+
 # --- PREDICTIONS ROUTE ---
 @app.route("/api/admin/predictions", methods=["GET"])
 @role_required(["administrator"])
@@ -2344,6 +2375,7 @@ def admin_get_predictions():
             result.append(pd_dict)
         return jsonify({"success": True, "predictions": result})
     return jsonify({"success": True, "predictions": []})
+
 
 @app.route("/api/admin/predictions/<pred_id>", methods=["DELETE"])
 @role_required(["administrator"])
@@ -2382,6 +2414,7 @@ def admin_get_records():
             result.append(rd)
         return jsonify({"success": True, "records": result})
     return jsonify({"success": True, "records": []})
+
 
 @app.route("/api/admin/records/<record_id>", methods=["DELETE"])
 @role_required(["administrator"])
