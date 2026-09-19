@@ -1,0 +1,860 @@
+{% extends "base.html" %}
+{% block page_title %}Faculty Portal &amp; Student Risk Diagnostics - EduPredict{% endblock %}
+
+{% block content %}
+<style>
+.teacher-page {
+    margin: 0 auto;
+    padding: 32px 24px;
+}
+
+.panel-card {
+    background: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 24px;
+    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02);
+}
+
+.panel-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #F1F5F9;
+}
+
+.panel-card-header h3 {
+    font-size: 18px;
+    font-weight: 700;
+    color: #0F172A;
+    margin: 0 0 4px 0;
+}
+
+.panel-card-header p {
+    font-size: 13px;
+    color: #64748B;
+    margin: 0;
+}
+
+.kpi-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 28px;
+}
+
+.kpi-card {
+    background: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    border-radius: 14px;
+    padding: 18px 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.kpi-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 16px rgba(0,0,0,0.06);
+}
+
+.kpi-icon {
+    width: 46px;
+    height: 46px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    flex-shrink: 0;
+}
+
+.kpi-icon.teal { background: rgba(22,119,255,0.08); color: #1677FF; }
+.kpi-icon.blue { background: rgba(22,119,255,0.06); color: #1677FF; }
+.kpi-icon.green { background: rgba(22,119,255,0.08); color: #1677FF; }
+.kpi-icon.red { background: rgba(220,38,38,0.08); color: #DC2626; }
+
+.kpi-label {
+    display: block;
+    font-size: 11px;
+    font-weight: 700;
+    color: #64748B;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 2px;
+}
+
+.kpi-value {
+    display: block;
+    font-size: 24px;
+    font-weight: 800;
+    color: #0F172A;
+    line-height: 1.1;
+}
+
+.tabs {
+    display: flex;
+    border-bottom: 1px solid #E2E8F0;
+    background: #F8FAFC;
+    overflow-x: auto;
+}
+
+.tab-btn {
+    padding: 14px 20px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #475569;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.tab-btn:hover { color: #1677FF; }
+.tab-btn.active {
+    color: #1677FF;
+    border-bottom-color: #1677FF;
+    background: #FFFFFF;
+}
+
+.tab-content { display: none; padding: 24px; }
+.tab-content.active { display: block; }
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.data-table thead th {
+    background: #0B1F33;
+    color: #FFFFFF;
+    padding: 12px 16px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid #0B1F33;
+    text-align: left;
+}
+
+.data-table tbody td {
+    padding: 14px 16px;
+    font-size: 13px;
+    color: #334155;
+    border-bottom: 1px solid #F1F5F9;
+    vertical-align: middle;
+}
+
+.data-table tbody tr:hover {
+    background: #F8FAFC;
+}
+
+.badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+}
+
+.badge-teal { background: rgba(22,119,255,0.08); color: #1677FF; }
+.badge-success { background: rgba(22,119,255,0.08); color: #0B1F33; }
+.badge-info { background: rgba(22,119,255,0.06); color: #0B1F33; }
+.badge-warning { background: rgba(22,119,255,0.06); color: #0B1F33; }
+.badge-danger { background: rgba(220,38,38,0.08); color: #DC2626; }
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 18px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.btn-primary { background: #1677FF; color: #FFFFFF; }
+.btn-primary:hover { background: #0E5FD8; }
+.btn-secondary { background: #F8FAFC; color: #475569; border: 1px solid #CBD5E1; }
+.btn-secondary:hover { background: #F1F5F9; }
+.btn-amber { background: #0B1F33; color: #FFFFFF; }
+.btn-amber:hover { background: #0A1628; }
+.btn-sm { padding: 6px 14px; font-size: 12px; }
+
+.form-control, .form-select {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1px solid #CBD5E1;
+    border-radius: 8px;
+    font-size: 13px;
+    color: #1E293B;
+    background: #FFFFFF;
+    box-sizing: border-box;
+}
+
+.form-control:focus, .form-select:focus {
+    outline: none;
+    border-color: #1677FF;
+    box-shadow: 0 0 0 3px rgba(22,119,255,0.12);
+}
+
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15,23,42,0.5);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+}
+
+.modal-box {
+    background: #FFFFFF;
+    border-radius: 16px;
+    width: 90%;
+    max-width: 540px;
+    box-shadow: 0 24px 48px rgba(0,0,0,0.15);
+    overflow: hidden;
+}
+
+.modal-header-dark {
+    background: #0B1F33;
+    padding: 18px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.modal-header-dark h3 {
+    font-size: 17px;
+    font-weight: 700;
+    color: #FFFFFF;
+    margin: 0;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    font-size: 22px;
+    color: #94A3B8;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.modal-close:hover { color: #FFFFFF; }
+
+@media (max-width: 1024px) {
+    .kpi-stat-grid { grid-template-columns: repeat(2, 1fr); }
+    div[style*="grid-template-columns: 1fr 1fr"] { grid-template-columns: 1fr !important; }
+}
+
+@media (max-width: 680px) {
+    .kpi-stat-grid { grid-template-columns: 1fr; }
+    .teacher-page { padding: 16px; }
+}
+</style>
+
+<div class="teacher-page">
+
+    <!-- HERO HEADER -->
+    <div class="page-hero" style="background:linear-gradient(135deg, #0B1F33 0%, #1677FF 100%);color:#ffffff;border-radius:18px;padding:32px 36px;margin-bottom:28px;box-shadow:0 10px 25px -5px rgba(18,60,54,0.2);">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:20px;">
+            <div>
+                <div style="display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,0.15);padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700;letter-spacing:0.5px;margin-bottom:12px;border:1px solid rgba(255,255,255,0.2);">
+                    <span style="width:8px;height:8px;border-radius:50%;background:#1677FF;display:inline-block;animation:pulse 2s infinite;"></span>
+                    FACULTY MANAGEMENT PORTAL &bull; CONTINUOUS EVALUATION[cite: 2]
+                </div>
+                <h1 style="font-size:32px;font-weight:800;color:#ffffff;margin:0 0 8px;line-height:1.2;">Faculty &amp; Student Management Dashboard</h1>
+                <p style="color:rgba(255,255,255,0.85);font-size:15px;margin:0;max-width:680px;line-height:1.6;">
+                    Supervise assigned student cohorts, post course assignments, grade student submissions with automated email feedback, and track MapReduce academic risk scores[cite: 2].
+                </p>
+            </div>
+            <div style="display:flex;gap:10px;align-items:center;">
+                <button class="btn btn-secondary" onclick="loadTeacherData()" style="background:#ffffff;color:#0B1F33;border:none;">
+                    &#8635; Refresh Portal
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="alertBox" class="alert" style="display:none;margin-bottom:20px;padding:14px 20px;border-radius:10px;font-weight:600;font-size:14px;"></div>
+
+    <!-- 4-COLUMN KPI STRIP -->
+    <div class="kpi-stat-grid">
+        <div class="kpi-card">
+            <div class="kpi-icon teal">&#128196;</div>
+            <div>
+                <span class="kpi-label">Assignments Created</span>
+                <span class="kpi-value" id="statAssignments">0</span>
+            </div>
+        </div>
+
+        <div class="kpi-card">
+            <div class="kpi-icon green">&#9989;</div>
+            <div>
+                <span class="kpi-label">Graded Submissions</span>
+                <span class="kpi-value" id="statGraded">0</span>
+            </div>
+        </div>
+
+        <div class="kpi-card">
+            <div class="kpi-icon red">&#9888;</div>
+            <div>
+                <span class="kpi-label">Cohort High Risk[cite: 2]</span>
+                <span class="kpi-value" id="statHighRisk" style="color:#DC2626;">0</span>
+            </div>
+        </div>
+
+        <div class="kpi-card">
+            <div class="kpi-icon blue">&#128276;</div>
+            <div>
+                <span class="kpi-label">Alert Mail Gateway[cite: 2]</span>
+                <span class="kpi-value" style="font-size:18px;color:#1677FF;">Online Daemon</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- MAIN TABS CONTAINER -->
+    <div class="panel-card" style="padding:0;overflow:hidden;">
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('tab-create', this)">+ Create Assignment</button>
+            <button class="tab-btn" onclick="switchTab('tab-grade', this)">Grade Student</button>
+            <button class="tab-btn" onclick="switchTab('tab-assignments', this)">Assignments Catalog</button>
+            <button class="tab-btn" onclick="switchTab('tab-grades', this)">Evaluation Ledger</button>
+            <button class="tab-btn" onclick="switchTab('tab-risk', this)">Cohort Risk Surveillance[cite: 2]</button>
+        </div>
+
+        <!-- 1. CREATE ASSIGNMENT TAB -->
+        <div class="tab-content active" id="tab-create">
+            <div class="panel-card-header" style="margin-bottom:18px;padding-bottom:14px;">
+                <div>
+                    <h3>Publish New Assignment</h3>
+                    <p>Post course tasks to your assigned cohort partitions with optional automated email broadcasts[cite: 2].</p>
+                </div>
+            </div>
+            <form id="createAssignmentForm">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:16px;">
+                    <div>
+                        <label style="display:block;font-size:12px;font-weight:700;color:#334155;margin-bottom:6px;">Assignment Title</label>
+                        <input type="text" id="asgnTitle" class="form-control" placeholder="e.g. Midterm Quiz 1" required>
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:12px;font-weight:700;color:#334155;margin-bottom:6px;">Subject / Course Domain</label>
+                        <input type="text" id="asgnSubject" class="form-control" placeholder="e.g. Big Data Analytics" required>
+                    </div>
+                </div>
+
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px;margin-bottom:18px;">
+                    <div>
+                        <label style="display:block;font-size:12px;font-weight:700;color:#334155;margin-bottom:6px;">Target Cohort / Batch</label>
+                        <select id="asgnBatchSelect" class="form-select" required>
+                            <option value="">-- Choose Cohort Batch --</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:12px;font-weight:700;color:#334155;margin-bottom:6px;">Total Marks</label>
+                        <input type="number" id="asgnTotal" class="form-control" placeholder="100" value="100" min="1" required>
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:12px;font-weight:700;color:#334155;margin-bottom:6px;">Submission Deadline</label>
+                        <input type="date" id="asgnDate" class="form-control" required>
+                    </div>
+                </div>
+
+                <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:12px 16px;margin-bottom:20px;display:flex;align-items:center;gap:10px;">
+                    <input type="checkbox" id="emailBroadcastCohort" checked style="width:16px;height:16px;accent-color:#1677FF;">
+                    <label for="emailBroadcastCohort" style="font-size:12px;font-weight:600;color:#334155;cursor:pointer;margin:0;">
+                        Broadcast Instant Email Notification to Enrolled Cohort Students[cite: 2]
+                    </label>
+                </div>
+
+                <button type="submit" id="btnCreateAsgn" class="btn btn-primary" style="padding:11px 26px;">
+                    Publish Assignment &amp; Notify Students[cite: 2]
+                </button>
+            </form>
+        </div>
+
+        <!-- 2. GRADE STUDENT TAB -->
+        <div class="tab-content" id="tab-grade">
+            <div class="panel-card-header" style="margin-bottom:18px;padding-bottom:14px;">
+                <div>
+                    <h3>Grade Student &amp; Send Feedback</h3>
+                    <p>Award marks and optionally transmit automated performance alert emails directly to the learner[cite: 2].</p>
+                </div>
+            </div>
+            <form id="gradeStudentForm">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:16px;">
+                    <div>
+                        <label style="display:block;font-size:12px;font-weight:700;color:#334155;margin-bottom:6px;">Select Coursework Assignment</label>
+                        <select id="gradeAssignmentSelect" class="form-select" required>
+                            <option value="">-- Choose Assignment --</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:12px;font-weight:700;color:#334155;margin-bottom:6px;">Select Student Learner</label>
+                        <select id="gradeStudentSelect" class="form-select" required>
+                            <option value="">-- Choose Student --</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div style="display:grid;grid-template-columns:1fr 2fr;gap:18px;margin-bottom:18px;">
+                    <div>
+                        <label style="display:block;font-size:12px;font-weight:700;color:#334155;margin-bottom:6px;">Obtained Marks</label>
+                        <input type="number" id="stdMarks" class="form-control" placeholder="e.g. 85" min="0" required>
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:12px;font-weight:700;color:#334155;margin-bottom:6px;">Instructor Feedback / Guidance</label>
+                        <input type="text" id="stdFeedback" class="form-control" placeholder="Well structured MapReduce reduction logic. Revise exception handling.">
+                    </div>
+                </div>
+
+                <div style="background:rgba(22,119,255,0.08);border:1px solid rgba(22,119,255,0.12);border-radius:10px;padding:12px 16px;display:flex;align-items:center;gap:10px;">
+                    <input type="checkbox" id="emailGradeAlert" checked style="width:16px;height:16px;accent-color:#1677FF;">
+                    <label for="emailGradeAlert" style="font-size:12px;font-weight:600;color:#1677FF;cursor:pointer;margin:0;">
+                        Transmit Instant Grade &amp; Feedback Alert via Email to Student[cite: 2]
+                    </label>
+                </div>
+
+                <button type="submit" id="btnSubmitGrade" class="btn btn-primary" style="padding:11px 26px;">
+                    Save Grade &amp; Transmit Evaluation[cite: 2]
+                </button>
+            </form>
+        </div>
+
+        <!-- 3. ASSIGNMENTS CATALOG TAB -->
+        <div class="tab-content" id="tab-assignments">
+            <div class="panel-card-header" style="margin-bottom:16px;padding-bottom:12px;">
+                <div>
+                    <h3>Published Assignments Catalog</h3>
+                    <p>Coursework units currently active across student cohort partitions[cite: 2].</p>
+                </div>
+            </div>
+            <div style="overflow-x:auto;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th style="width:70px;">ID</th>
+                            <th>Assignment Title</th>
+                            <th>Subject Domain</th>
+                            <th style="text-align:center;">Total Marks</th>
+                            <th>Due Date</th>
+                            <th style="color:#FFFFFF;">Created Date</th>
+                            <th style="text-align:right;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="assignmentsTableBody">
+                        <tr><td colspan="7" class="text-center" style="padding:32px;color:#94A3B8;text-align:center;">Loading assignments manifest...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 4. GRADES LEDGER TAB -->
+        <div class="tab-content" id="tab-grades">
+            <div class="panel-card-header" style="margin-bottom:16px;padding-bottom:12px;">
+                <div>
+                    <h3>Continuous Evaluation Records</h3>
+                    <p>Synchronized mark ledgers recorded across assignments and exams[cite: 2].</p>
+                </div>
+            </div>
+            <div style="overflow-x:auto;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th style="width:70px;">ID</th>
+                            <th>Student Learner</th>
+                            <th>Email Destination</th>
+                            <th>Assignment Unit</th>
+                            <th style="text-align:center;">Score Ratio</th>
+                            <th>Evaluation Timestamp</th>
+                        </tr>
+                    </thead>
+                    <tbody id="gradesTableBody">
+                        <tr><td colspan="6" class="text-center" style="padding:32px;color:#94A3B8;text-align:center;">Loading evaluation records...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 5. COHORT RISK WATCH TAB (MAPREDUCE METRICS) -->
+        <div class="tab-content" id="tab-risk">
+            <div class="panel-card-header" style="margin-bottom:16px;padding-bottom:12px;">
+                <div>
+                    <h3>Cohort Predictive Risk &amp; Retention Monitor[cite: 2]</h3>
+                    <p>Live MapReduce risk status evaluated against attendance records and continuous assessment marks[cite: 2].</p>
+                </div>
+            </div>
+            <div style="overflow-x:auto;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Learner Name</th>
+                            <th>Email Address</th>
+                            <th style="text-align:center;">Attendance Rate[cite: 2]</th>
+                            <th style="text-align:center;">Assessment Mean[cite: 2]</th>
+                            <th>Calculated Risk[cite: 2]</th>
+                            <th style="text-align:center;">Projected Grade[cite: 2]</th>
+                            <th style="text-align:right;">Advisor Escalation[cite: 2]</th>
+                        </tr>
+                    </thead>
+                    <tbody id="cohortRiskTableBody">
+                        <tr><td colspan="7" class="text-center" style="padding:32px;color:#94A3B8;text-align:center;">Calculating cohort risk matrix...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+
+</div>
+
+<!-- EMAIL ESCALATION MODAL (TO ADVISOR / PARENT) -->
+<div id="riskEscalateModal" class="modal-overlay" style="display:none;">
+    <div class="modal-box">
+        <div class="modal-header-dark">
+            <h3>Escalate At-Risk Student Alert[cite: 2]</h3>
+            <button class="modal-close" onclick="closeRiskEscalateModal()">&times;</button>
+        </div>
+        <form onsubmit="handleSendRiskEscalation(event)">
+            <input type="hidden" id="escStudentId">
+            <div style="padding:24px;display:flex;flex-direction:column;gap:16px;">
+                <div style="background:rgba(220,38,38,0.08);border:1px solid rgba(220,38,38,0.15);border-radius:10px;padding:12px 16px;">
+                    <span style="font-size:11px;font-weight:800;color:#DC2626;text-transform:uppercase;display:block;">Incident Subject</span>
+                    <strong id="escStudentName" style="font-size:14px;color:#DC2626;">Student Name</strong>
+                    <span id="escStudentSummary" style="font-size:12px;color:#B91C1C;display:block;margin-top:2px;">Attendance: 0% &bull; Score: 0%</span>
+                </div>
+
+                <div>
+                    <label style="display:block;font-size:13px;font-weight:700;color:#334155;margin-bottom:6px;">
+                        Mentor / Advisor / Dean Recipient Email <span style="color:#1677FF;">*</span>
+                    </label>
+                    <input type="email" id="escRecipientEmail" required placeholder="counselor@university.edu, dean@aptech.internal" class="form-control">
+                </div>
+
+                <div>
+                    <label style="display:block;font-size:13px;font-weight:700;color:#334155;margin-bottom:6px;">Remedial Directive Notes</label>
+                    <textarea id="escCustomNote" rows="3" class="form-control" placeholder="Critical score drop and low attendance detected. Immediate academic intervention recommended...[cite: 2]"></textarea>
+                </div>
+            </div>
+            <div style="padding:16px 24px;border-top:1px solid #E2E8F0;display:flex;justify-content:flex-end;gap:10px;background:#F9FAFB;">
+                <button type="button" class="btn btn-secondary" onclick="closeRiskEscalateModal()">Cancel</button>
+                <button type="submit" id="btnSubmitRiskEscalate" class="btn btn-amber">
+                    Transmit Alert Email[cite: 2]
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function switchTab(tabId, btn) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(tabId).classList.add('active');
+}
+
+function showAlert(msg, type='success') {
+    const box = document.getElementById("alertBox");
+    box.textContent = msg;
+    box.style.display = "block";
+    if (type === 'success') {
+        box.style.background = 'rgba(22,119,255,0.06)';
+        box.style.color = '#0B1F33';
+        box.style.border = '1px solid rgba(22,119,255,0.12)';
+    } else {
+        box.style.background = '#FEF2F2';
+        box.style.color = '#DC2626';
+        box.style.border = '1px solid rgba(220,38,38,0.15)';
+    }
+    box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    setTimeout(() => { box.style.display = "none"; }, 4500);
+}
+
+// 1. FETCH AND LOAD TEACHER DATA
+async function loadTeacherData() {
+    try {
+        const res = await fetch("/api/teacher/data");
+        const data = await res.json();
+        if (!data.success) return;
+
+        const assignments = data.assignments || [];
+        const marks = data.marks || [];
+        const students = data.students || [];
+        const batches = data.batches || [];
+
+        document.getElementById("statAssignments").textContent = assignments.length;
+        document.getElementById("statGraded").textContent = marks.length;
+
+        // Batch Select
+        const batchSelect = document.getElementById("asgnBatchSelect");
+        if (batchSelect) {
+            batchSelect.innerHTML = '<option value="">-- Choose Cohort Batch --</option>';
+            batches.forEach(b => {
+                batchSelect.innerHTML += `<option value="${b.id || b._id}">${b.name}</option>`;
+            });
+        }
+
+        // Assignment Grade Select
+        const asgSelect = document.getElementById("gradeAssignmentSelect");
+        asgSelect.innerHTML = '<option value="">-- Choose Assignment --</option>';
+        assignments.forEach(a => {
+            asgSelect.innerHTML += `<option value="${a.id || a._id}">${a.title} (${a.subject}) - Total: ${a.total_marks}</option>`;
+        });
+
+        // Student Grade Select
+        const studentSelect = document.getElementById("gradeStudentSelect");
+        studentSelect.innerHTML = '<option value="">-- Choose Student --</option>';
+        students.forEach(s => {
+            studentSelect.innerHTML += `<option value="${s.id || s._id}">${s.name} (${s.email || 'No email'})</option>`;
+        });
+
+        // Assignments Catalog Table
+        const asgnTable = document.getElementById("assignmentsTableBody");
+        if (!assignments.length) {
+            asgnTable.innerHTML = '<tr><td colspan="7" class="text-center" style="padding:32px;color:#94A3B8;text-align:center;">No assignments posted yet.</td></tr>';
+        } else {
+            asgnTable.innerHTML = assignments.map(a => `
+                <tr>
+                    <td style="color:#64748B;font-family:monospace;font-weight:600;">#${a.id || a._id}</td>
+                    <td><strong style="color:#0F172A;">${a.title}</strong></td>
+                    <td>${a.subject}</td>
+                    <td style="text-align:center;font-weight:700;">${a.total_marks}</td>
+                    <td style="color:#0B1F33;font-weight:600;">${a.due_date}</td>
+                    <td style="color:#64748B;font-size:12px;">${a.created_at || 'Active'}</td>
+                    <td style="text-align:right;">
+                        <button class="btn btn-secondary btn-sm" onclick="deleteAssignment('${a.id || a._id}')">Delete</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        // Grades Ledger Table
+        const gradesTable = document.getElementById("gradesTableBody");
+        if (!marks.length) {
+            gradesTable.innerHTML = '<tr><td colspan="6" class="text-center" style="padding:32px;color:#94A3B8;text-align:center;">No student marks cataloged.</td></tr>';
+        } else {
+            gradesTable.innerHTML = marks.map(m => `
+                <tr>
+                    <td style="color:#64748B;font-family:monospace;font-weight:600;">#${m.id || m._id || '-'}</td>
+                    <td><strong style="color:#0F172A;">${m.student_name || 'Student'}</strong></td>
+                    <td style="color:#64748B;">${m.student_email || '—'}</td>
+                    <td>${m.assignment_title || 'Coursework'}</td>
+                    <td style="text-align:center;">
+                        <strong style="color:#1677FF;">${m.obtained_marks}</strong> / ${m.total_marks}
+                    </td>
+                    <td style="color:#64748B;font-size:12px;">${m.graded_at ? new Date(m.graded_at).toLocaleString() : 'Just now'}</td>
+                </tr>
+            `).join('');
+        }
+
+        // Cohort Risk Watch Table & High Risk Count
+        let highRiskCount = 0;
+        const riskTable = document.getElementById("cohortRiskTableBody");
+        if (students.length) {
+            riskTable.innerHTML = students.map(s => {
+                const risk = (s.risk || 'Low').toLowerCase();
+                if (risk === 'high') highRiskCount++;
+
+                let badgeClass = 'badge-success';
+                if (risk === 'high') badgeClass = 'badge-danger';
+                else if (risk === 'medium') badgeClass = 'badge-warning';
+
+                const attVal = s.attendance != null ? `${s.attendance}%` : '85%';
+                const marksVal = s.marks != null ? `${s.marks}%` : '75%';
+                const gradeVal = s.predicted_grade || s.grade || 'B';
+
+                return `
+                    <tr>
+                        <td style="font-weight:700;color:#0F172A;">${s.name || 'Student #' + s.id}</td>
+                        <td style="color:#64748B;">${s.email || 'N/A'}</td>
+                        <td style="text-align:center;font-weight:700;color:${s.attendance < 75 ? '#DC2626' : '#0F172A'};">${attVal}</td>
+                        <td style="text-align:center;font-weight:700;color:${s.marks < 50 ? '#DC2626' : '#1677FF'};">${marksVal}</td>
+                        <td><span class="badge ${badgeClass}" style="text-transform:uppercase;">${s.risk || 'Low'} Risk</span></td>
+                        <td style="text-align:center;"><span class="badge badge-teal">${gradeVal}</span></td>
+                        <td style="text-align:right;">
+                            <button class="btn btn-amber btn-sm" onclick='openRiskEscalateModal(${JSON.stringify(s).replace(/'/g, "&#39;")})' title="Transmit alert email to advisor[cite: 2]">
+                                &#9993; Alert Advisor[cite: 2]
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        } else {
+            riskTable.innerHTML = '<tr><td colspan="7" class="text-center" style="padding:32px;color:#94A3B8;text-align:center;">No students assigned to your cohorts.</td></tr>';
+        }
+        document.getElementById("statHighRisk").textContent = highRiskCount;
+
+    } catch (e) {
+        console.error('Error loading teacher data:', e);
+    }
+}
+
+// 2. CREATE ASSIGNMENT FORM HANDLER
+document.getElementById("createAssignmentForm").addEventListener("submit", async function(e) {
+    e.preventDefault();
+    const btn = document.getElementById("btnCreateAsgn");
+    btn.disabled = true;
+    btn.textContent = "Publishing Assignment...";
+
+    const payload = {
+        title: document.getElementById("asgnTitle").value.trim(),
+        subject: document.getElementById("asgnSubject").value.trim(),
+        batch_id: document.getElementById("asgnBatchSelect").value || null,
+        total_marks: document.getElementById("asgnTotal").value,
+        due_date: document.getElementById("asgnDate").value,
+        send_email: document.getElementById("emailBroadcastCohort").checked
+    };
+
+    try {
+        const res = await fetch("/api/teacher/assignments", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            showAlert(data.message || (payload.send_email ? 'Assignment created and email broadcasted to cohort students!' : 'Assignment published!'));
+            this.reset();
+            loadTeacherData();
+        } else {
+            showAlert(data.message || 'Error creating assignment.', 'error');
+        }
+    } catch(err) {
+        showAlert('Network error communicating with assignment service.', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "Publish Assignment & Notify Students";
+    }
+});
+
+// 3. GRADE STUDENT FORM HANDLER
+document.getElementById("gradeStudentForm").addEventListener("submit", async function(e) {
+    e.preventDefault();
+    const btn = document.getElementById("btnSubmitGrade");
+    btn.disabled = true;
+    btn.textContent = "Submitting Evaluation...";
+
+    const payload = {
+        assignment_id: document.getElementById("gradeAssignmentSelect").value,
+        student_id: document.getElementById("gradeStudentSelect").value,
+        obtained_marks: parseInt(document.getElementById("stdMarks").value),
+        feedback: document.getElementById("stdFeedback").value.trim(),
+        send_email: document.getElementById("emailGradeAlert").checked
+    };
+
+    try {
+        const res = await fetch("/api/teacher/grade", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            showAlert(data.message || (payload.send_email ? 'Grade saved and notification email dispatched to student!' : 'Grade submitted successfully!'));
+            this.reset();
+            loadTeacherData();
+        } else {
+            showAlert(data.message || 'Error submitting grade.', 'error');
+        }
+    } catch(err) {
+        showAlert('Network error saving grade evaluation.', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "Save Grade & Transmit Evaluation";
+    }
+});
+
+// 4. RISK ESCALATION EMAIL MODAL LOGIC
+function openRiskEscalateModal(student) {
+    document.getElementById('escStudentId').value = student.id;
+    document.getElementById('escStudentName').textContent = `${student.name} (#${student.id})`;
+    document.getElementById('escStudentSummary').textContent = `Attendance: ${student.attendance || 0}% | Marks: ${student.marks || 0}% | Status: ${(student.risk || 'Low').toUpperCase()} RISK`;
+    document.getElementById('escRecipientEmail').value = '';
+    document.getElementById('escCustomNote').value = student.risk === 'High' 
+        ? 'Warning: Learner has breached risk threshold (<75% attendance / declining exam score). Immediate mentoring required.[cite: 2]' 
+        : '';
+    document.getElementById('riskEscalateModal').style.display = 'flex';
+}
+
+function closeRiskEscalateModal() {
+    document.getElementById('riskEscalateModal').style.display = 'none';
+}
+
+async function handleSendRiskEscalation(e) {
+    e.preventDefault();
+    const btn = document.getElementById('btnSubmitRiskEscalate');
+    btn.disabled = true;
+    btn.textContent = 'Transmitting Alert...';
+
+    const sid = document.getElementById('escStudentId').value;
+    const recipient = document.getElementById('escRecipientEmail').value.trim();
+    const note = document.getElementById('escCustomNote').value.trim();
+
+    try {
+        const res = await fetch('/api/alerts/send-email', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                student_id: sid,
+                recipient: recipient,
+                note: note
+            })
+        });
+        const d = await res.json();
+        if (d.success) {
+            showAlert(`Risk alert notification email successfully transmitted to ${recipient}!`);
+            closeRiskEscalateModal();
+        } else {
+            showAlert(d.message || 'Alert transmission failed.', 'error');
+        }
+    } catch(err) {
+        showAlert('Error contacting alert mail gateway.', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Transmit Alert Email';
+    }
+}
+
+async function deleteAssignment(id) {
+    if (!confirm('Delete this assignment unit?')) return;
+    try {
+        const res = await fetch(`/api/admin/assignments?id=${id}`, { method: 'DELETE' });
+        const d = await res.json();
+        if (d.success) {
+            showAlert('Assignment deleted');
+            loadTeacherData();
+        }
+    } catch(e) {
+        showAlert('Error deleting assignment', 'error');
+    }
+}
+
+document.addEventListener("DOMContentLoaded", loadTeacherData);
+</script>
+{% endblock %}

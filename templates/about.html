@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block page_title %}About System Architecture - EduPredict Big Data Analytics{% endblock %}
+
+{% block content %}
+<section class="hero-section" style="padding:48px 0 24px;">
+    <div class="container">
+        <div class="hero-badge" style="background:rgba(22,119,255,0.06);color:#1677FF;border:1px solid rgba(22,119,255,0.12);padding:4px 14px;border-radius:20px;font-size:12px;font-weight:700;display:inline-block;margin-bottom:12px;">
+            APTECH ePROJECT SPECIFICATION &bull; BIG DATA ANALYTICS
+        </div>
+        <h1 style="font-size:38px;font-weight:800;color:#0B1F33;margin-bottom:12px;">Hadoop Paradigm Replicated in Python</h1>
+        <p class="hero-desc" style="font-size:16px;color:#4b5563;max-width:760px;line-height:1.7;">
+            EduPredict addresses institutional retention challenges by applying distributed storage concepts, parallel map-reduce processing, and machine learning pipelines to academic datasets.
+        </p>
+    </div>
+</section>
+
+<section class="page-section" style="padding:40px 0;">
+    <div class="container">
+        <div style="display:grid;grid-template-columns:1.1fr 0.9fr;gap:40px;align-items:start;">
+            <div>
+                <div class="badge badge-accent mb-sm" style="color:#1677FF;font-weight:700;font-size:12px;letter-spacing:1px;">PROBLEM STATEMENT &amp; MOTIVATION</div>
+                <h2 style="font-size:26px;font-weight:800;color:#111827;margin-bottom:16px;">Transforming Raw Academic Records into Early Interventions</h2>
+                <p style="font-size:15px;line-height:1.8;color:#4b5563;margin-bottom:16px;">
+                    Educational institutions capture vast data footprints daily—including attendance records, LMS activity scores, and continuous academic assessments. Unstructured or siloed storage prevents early identification of students trending toward academic distress.
+                </p>
+                <p style="font-size:15px;line-height:1.8;color:#4b5563;">
+                    EduPredict emulates Hadoop Distributed File System (HDFS) partitioning and MapReduce workflows in Python to efficiently clean, partition, and score large-scale learner profiles in real time.
+                </p>
+            </div>
+
+            <div class="info-card" style="background:#ffffff;border:1px solid #e5e7eb;border-radius:16px;padding:28px;box-shadow:0 4px 6px -1px rgba(0,0,0,0.05);">
+                <h3 style="font-size:17px;font-weight:700;color:#0B1F33;margin-bottom:20px;border-bottom:1px solid #f3f4f6;padding-bottom:12px;">Core Technical Pipeline</h3>
+                <ul class="info-list" style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:18px;">
+                    <li style="display:flex;align-items:center;gap:14px;">
+                        <span class="step-num" style="background:rgba(22,119,255,0.08);color:#1677FF;border:1px solid rgba(22,119,255,0.12);width:36px;height:36px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;">01</span>
+                        <div>
+                            <strong style="display:block;font-size:14px;color:#111827;">Data Ingestion &amp; Chunking</strong>
+                            <span style="font-size:13px;color:#6b7280;">HDFS-style chunked batch ingestion with missing value imputation.</span>
+                        </div>
+                    </li>
+                    <li style="display:flex;align-items:center;gap:14px;">
+                        <span class="step-num" style="background:rgba(22,119,255,0.08);color:#1677FF;border:1px solid rgba(22,119,255,0.12);width:36px;height:36px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;">02</span>
+                        <div>
+                            <strong style="display:block;font-size:14px;color:#111827;">Parallel MapReduce Processing</strong>
+                            <span style="font-size:13px;color:#6b7280;">Multi-core anomaly mapping, correlation indexing, and aggregation.</span>
+                        </div>
+                    </li>
+                    <li style="display:flex;align-items:center;gap:14px;">
+                        <span class="step-num" style="background:rgba(22,119,255,0.08);color:#1677FF;border:1px solid rgba(22,119,255,0.12);width:36px;height:36px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;">03</span>
+                        <div>
+                            <strong style="display:block;font-size:14px;color:#111827;">Predictive Inference Ensemble</strong>
+                            <span style="font-size:13px;color:#6b7280;">Scikit-Learn regression and classification for risk and grade projection.</span>
+                        </div>
+                    </li>
+                    <li style="display:flex;align-items:center;gap:14px;">
+                        <span class="step-num" style="background:rgba(22,119,255,0.08);color:#1677FF;border:1px solid rgba(22,119,255,0.12);width:36px;height:36px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;">04</span>
+                        <div>
+                            <strong style="display:block;font-size:14px;color:#111827;">Alert Notification Service</strong>
+                            <span style="font-size:13px;color:#6b7280;">Automated SMTP dispatching when risk indexes exceed defined thresholds.</span>
+                        </div>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="page-section" style="background:#f8fafc;padding:48px 0;border-top:1px solid #e2e8f0;border-bottom:1px solid #e2e8f0;">
+    <div class="container">
+        <div style="text-align:center;max-width:640px;margin:0 auto 36px;">
+            <div class="badge badge-accent mb-sm" style="color:#1677FF;font-weight:700;font-size:12px;letter-spacing:1px;">PROJECT OBJECTIVES</div>
+            <h2 style="font-size:26px;font-weight:800;color:#111827;">System Deliverables &amp; Impact</h2>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:24px;">
+            <div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:14px;padding:24px;">
+                <div style="font-size:13px;font-weight:800;color:#1677FF;margin-bottom:8px;">OBJECTIVE &bull; 01</div>
+                <h3 style="font-size:18px;font-weight:700;color:#111827;margin-bottom:10px;">Retention &amp; At-Risk Detection</h3>
+                <p style="font-size:14px;color:#6b7280;line-height:1.6;">Identifies academic deterioration via multi-variable thresholds before semester evaluations finalize.</p>
+            </div>
+            
+            <div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:14px;padding:24px;">
+                <div style="font-size:13px;font-weight:800;color:#1677FF;margin-bottom:8px;">OBJECTIVE &bull; 02</div>
+                <h3 style="font-size:18px;font-weight:700;color:#111827;margin-bottom:10px;">Role-Based Stakeholder Views</h3>
+                <p style="font-size:14px;color:#6b7280;line-height:1.6;">Provides differentiated operational dashboards for Admins, Teachers, Analysts, and Students.</p>
+            </div>
+            
+            <div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:14px;padding:24px;">
+                <div style="font-size:13px;font-weight:800;color:#1677FF;margin-bottom:8px;">OBJECTIVE &bull; 03</div>
+                <h3 style="font-size:18px;font-weight:700;color:#111827;margin-bottom:10px;">Automated Alert Escalation</h3>
+                <p style="font-size:14px;color:#6b7280;line-height:1.6;">Dispatches real-time automated email notifications when analyst reports and anomaly triggers are published.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<style>
+@media (max-width: 868px) {
+    div[style*="grid-template-columns:1.1fr 0.9fr"] { grid-template-columns: 1fr !important; }
+    div[style*="grid-template-columns:repeat(3, 1fr)"] { grid-template-columns: 1fr !important; }
+}
+</style>
+{% endblock %}

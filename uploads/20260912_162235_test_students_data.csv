@@ -1,0 +1,26 @@
+student_id,student_name,attendance,study_hours,assignment_score,lms_activity,previous_score,final_score,risk_level
+101,Ahmed Ali,88,8,82,78,80,84,0
+102,Sara Khan,94,10,91,89,88,92,0
+103,Hamza Tariq,45,2,40,30,48,42,2
+104,Zainab Fatima,65,4,62,55,59,63,1
+105,Bilal Hassan,90,7,85,82,84,87,0
+106,Ayesha Noor,38,1,35,25,42,36,2
+107,Usman Sheikh,72,5,70,68,71,73,1
+108,Mariam Siddiqui,95,11,94,92,90,95,0
+109,Daniyal Raza,50,3,52,48,51,50,2
+110,Hira Mansoor,82,6,79,75,81,80,0
+111,Mustafa Qureshi,60,4,58,50,62,59,1
+112,Fatima Zahra,89,9,88,86,85,89,0
+113,Omer Farooq,42,2,38,32,45,40,2
+114,Anaya Masood,78,6,76,72,77,78,1
+115,Saad Rafiq,92,8,89,85,87,90,0
+116,Laiba Rauf,55,3,57,52,54,56,1
+117,Talha Zubair,35,1,30,20,40,34,2
+118,Mahnoor Aslam,86,7,83,80,82,85,0
+119,Kashif Mehmood,68,5,66,60,67,68,1
+120,Zain Ul Abideen,96,12,95,94,92,96,0
+121,Alina Javed,48,2,45,35,46,44,2
+122,Rehan Akhtar,75,6,73,70,74,75,1
+123,Nimra Shah,91,8,87,83,86,88,0
+124,Fahad Mustafa,39,1,36,28,41,38,2
+125,Sana Mir,84,7,81,77,83,83,0
