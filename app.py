@@ -117,6 +117,12 @@ def _to_dict(doc):
         else:
             d.pop("_id")
     d.pop("password", None)
+    
+    # FIX: Convert all ObjectIds to string to prevent frontend [object Object] binding issues
+    for k, v in list(d.items()):
+        if isinstance(v, ObjectId):
+            d[k] = str(v)
+            
     return d
 
 
@@ -555,7 +561,9 @@ def process_dataset():
 
         dataset = None
         if _db_ok():
-            dataset = datasets_col.find_one({"$or": [{"id": _normalize_id(dataset_id)}, {"id": str(dataset_id)}]})
+            dataset = datasets_col.find_one({
+                "$or": [{"id": _normalize_id(dataset_id)}, {"id": str(dataset_id)}, {"_id": _safe_object_id(dataset_id)}]
+            })
 
         if not dataset or not os.path.exists(dataset.get("file_path", "")):
             return jsonify({"success": False, "message": "Dataset partition not found on disk"}), 404
@@ -627,7 +635,9 @@ def get_chart_data():
 
         dataset = None
         if _db_ok():
-            dataset = datasets_col.find_one({"$or": [{"id": _normalize_id(dataset_id)}, {"id": str(dataset_id)}]})
+            dataset = datasets_col.find_one({
+                "$or": [{"id": _normalize_id(dataset_id)}, {"id": str(dataset_id)}, {"_id": _safe_object_id(dataset_id)}]
+            })
 
         if not dataset or not os.path.exists(dataset.get("file_path", "")):
             return jsonify({"success": False, "message": "Dataset not found"}), 404
@@ -838,7 +848,7 @@ def manage_users():
                     update_fields["is_active"] = data.get("is_active")
 
                 users_col.update_one(
-                    {"$or": [{"id": _normalize_id(user_id)}, {"id": str(user_id)}]},
+                    {"$or": [{"id": _normalize_id(user_id)}, {"id": str(user_id)}, {"_id": _safe_object_id(user_id)}]},
                     {"$set": update_fields}
                 )
                 log_event("User Role Updated", f"Administrator updated user #{user_id} - New Role: {data.get('role')}")
@@ -857,7 +867,7 @@ def manage_users():
         if _db_ok():
             try:
                 nid = _normalize_id(user_id)
-                users_col.delete_one({"$or": [{"id": nid}, {"id": str(user_id)}]})
+                users_col.delete_one({"$or": [{"id": nid}, {"id": str(user_id)}, {"_id": _safe_object_id(user_id)}]})
                 return jsonify({"success": True, "message": "User purged from directory."})
             except Exception as e:
                 return jsonify({"success": False, "message": str(e)}), 400
@@ -938,7 +948,7 @@ def manage_batches():
                 teacher = _find_user_by_id(bd.get("teacher_id"))
                 bd["teacher_name"] = teacher["name"] if teacher else "Unassigned"
                 bd["student_count"] = student_batches_col.count_documents({
-                    "$or": [{"batch_id": bd["id"]}, {"batch_id": str(bd["id"])}]
+                    "$or": [{"batch_id": bd["id"]}, {"batch_id": str(bd["id"])}, {"batch_id": _safe_object_id(bd["id"])}]
                 })
                 result.append(bd)
             return jsonify({"success": True, "batches": result})
@@ -948,11 +958,11 @@ def manage_batches():
         data = request.get_json() or {}
         if _db_ok():
             batch_id = _next_id(batches_col)
-            # Resolve teacher string name to ID if frontend is sending innerText instead of Value
+            # FIX: Resolve teacher string name to ID properly robust to missing 'id' fields
             tid = data.get("teacher_id") or data.get("instructor_id") or data.get("assigned_instructor")
             teacher = _find_user_by_id(tid)
             if teacher:
-                tid = teacher.get("id")
+                tid = teacher.get("id") or str(teacher.get("_id"))
             tid = _normalize_id(tid)
 
             batches_col.insert_one({
@@ -968,11 +978,11 @@ def manage_batches():
     elif request.method == "PUT":
         data = request.get_json() or {}
         if _db_ok():
-            # Resolve teacher string name to ID if frontend is sending innerText
+            # FIX: Resolve teacher string name to ID properly robust to missing 'id' fields
             tid = data.get("teacher_id") or data.get("instructor_id") or data.get("assigned_instructor")
             teacher = _find_user_by_id(tid)
             if teacher:
-                tid = teacher.get("id")
+                tid = teacher.get("id") or str(teacher.get("_id"))
             tid = _normalize_id(tid)
             
             batch_id = _normalize_id(data.get("id") or data.get("_id") or data.get("batch_id"))
@@ -980,7 +990,7 @@ def manage_batches():
             
             # Robust ID matching for Batch Updates
             batches_col.update_one(
-                {"$or": [{"id": batch_id}, {"id": str(batch_id)}]},
+                {"$or": [{"id": batch_id}, {"id": str(batch_id)}, {"_id": _safe_object_id(batch_id)}]},
                 {"$set": {"name": name, "teacher_id": tid}}
             )
             return jsonify({"success": True, "message": "Batch configuration updated!"})
@@ -989,8 +999,8 @@ def manage_batches():
     elif request.method == "DELETE":
         batch_id = _normalize_id(request.args.get("id"))
         if _db_ok():
-            batches_col.delete_one({"id": batch_id})
-            student_batches_col.delete_many({"$or": [{"batch_id": batch_id}, {"batch_id": str(batch_id)}]})
+            batches_col.delete_one({"$or": [{"id": batch_id}, {"id": str(batch_id)}, {"_id": _safe_object_id(batch_id)}]})
+            student_batches_col.delete_many({"$or": [{"batch_id": batch_id}, {"batch_id": str(batch_id)}, {"batch_id": _safe_object_id(batch_id)}]})
             return jsonify({"success": True, "message": "Batch partition dismantled."})
         return jsonify({"success": True, "message": "Batch deleted."})
 
@@ -1010,8 +1020,8 @@ def manage_batch_students():
                 sid_norm = _normalize_id(sid)
                 existing = student_batches_col.find_one({
                     "$and": [
-                        {"$or": [{"student_id": sid_norm}, {"student_id": str(sid_norm)}]},
-                        {"$or": [{"batch_id": batch_id}, {"batch_id": str(batch_id)}]}
+                        {"$or": [{"student_id": sid_norm}, {"student_id": str(sid_norm)}, {"student_id": _safe_object_id(sid_norm)}]},
+                        {"$or": [{"batch_id": batch_id}, {"batch_id": str(batch_id)}, {"batch_id": _safe_object_id(batch_id)}]}
                     ]
                 })
                 if not existing:
@@ -1025,8 +1035,8 @@ def manage_batch_students():
         if _db_ok():
             student_batches_col.delete_many({
                 "$and": [
-                    {"$or": [{"batch_id": batch_id}, {"batch_id": str(batch_id)}]},
-                    {"$or": [{"student_id": student_id}, {"student_id": str(student_id)}]}
+                    {"$or": [{"batch_id": batch_id}, {"batch_id": str(batch_id)}, {"batch_id": _safe_object_id(batch_id)}]},
+                    {"$or": [{"student_id": student_id}, {"student_id": str(student_id)}, {"student_id": _safe_object_id(student_id)}]}
                 ]
             })
             return jsonify({"success": True, "message": "Learner removed from cohort."})
@@ -1038,7 +1048,7 @@ def manage_batch_students():
 def get_batch_students(batch_id):
     if _db_ok():
         assignments = list(student_batches_col.find({
-            "$or": [{"batch_id": batch_id}, {"batch_id": str(batch_id)}]
+            "$or": [{"batch_id": batch_id}, {"batch_id": str(batch_id)}, {"batch_id": _safe_object_id(batch_id)}]
         }))
         student_ids = [a["student_id"] for a in assignments]
         all_ids = list(set([_normalize_id(s) for s in student_ids] + [str(s) for s in student_ids]))
@@ -1076,7 +1086,7 @@ def get_teacher_data():
         enriched_marks = []
         for m in marks:
             md = _to_dict(m)
-            assignment = assignments_col.find_one({"$or": [{"id": md.get("assignment_id")}, {"id": str(md.get("assignment_id"))}]})
+            assignment = assignments_col.find_one({"$or": [{"id": md.get("assignment_id")}, {"id": str(md.get("assignment_id"))}, {"_id": _safe_object_id(md.get("assignment_id"))}]})
             if assignment:
                 user = _find_user_by_id(md.get("student_id"))
                 md["student_name"] = user["name"] if user else None
@@ -1089,7 +1099,7 @@ def get_teacher_data():
         all_student_ids = set()
         for b in batches:
             bd = _to_dict(b)
-            sb = list(student_batches_col.find({"$or": [{"batch_id": bd["id"]}, {"batch_id": str(bd["id"])}]}))
+            sb = list(student_batches_col.find({"$or": [{"batch_id": bd["id"]}, {"batch_id": str(bd["id"])}, {"batch_id": _safe_object_id(bd["id"])}]}))
             
             student_ids = [s["student_id"] for s in sb]
             normalized_sids = [x for x in list(set([_normalize_id(s) for s in student_ids] + [str(s) for s in student_ids])) if x is not None]
@@ -1125,7 +1135,7 @@ def get_teacher_data():
         enriched_assignments = []
         for a in assignments:
             ad = _to_dict(a)
-            batch = batches_col.find_one({"$or": [{"id": ad.get("batch_id")}, {"id": str(ad.get("batch_id"))}]})
+            batch = batches_col.find_one({"$or": [{"id": ad.get("batch_id")}, {"id": str(ad.get("batch_id"))}, {"_id": _safe_object_id(ad.get("batch_id"))}]})
             ad["batch_name"] = batch["name"] if batch else None
             enriched_assignments.append(ad)
 
@@ -1157,7 +1167,7 @@ def teacher_assignments():
             result = []
             for a in assignments:
                 ad = _to_dict(a)
-                batch = batches_col.find_one({"$or": [{"id": ad.get("batch_id")}, {"id": str(ad.get("batch_id"))}]})
+                batch = batches_col.find_one({"$or": [{"id": ad.get("batch_id")}, {"id": str(ad.get("batch_id"))}, {"_id": _safe_object_id(ad.get("batch_id"))}]})
                 ad["batch_name"] = batch["name"] if batch else "Unassigned"
                 result.append(ad)
             return jsonify({"success": True, "assignments": result})
@@ -1214,8 +1224,8 @@ def grade_student():
         try:
             existing = student_marks_col.find_one({
                 "$and": [
-                    {"$or": [{"student_id": student_id}, {"student_id": str(student_id)}]},
-                    {"$or": [{"assignment_id": assignment_id}, {"assignment_id": str(assignment_id)}]}
+                    {"$or": [{"student_id": student_id}, {"student_id": str(student_id)}, {"student_id": _safe_object_id(student_id)}]},
+                    {"$or": [{"assignment_id": assignment_id}, {"assignment_id": str(assignment_id)}, {"assignment_id": _safe_object_id(assignment_id)}]}
                 ]
             })
 
@@ -1241,7 +1251,7 @@ def grade_student():
 
             if send_email_notif:
                 student = _find_user_by_id(student_id)
-                assignment = assignments_col.find_one({"$or": [{"id": assignment_id}, {"id": str(assignment_id)}]})
+                assignment = assignments_col.find_one({"$or": [{"id": assignment_id}, {"id": str(assignment_id)}, {"_id": _safe_object_id(assignment_id)}]})
                 if student and student.get("email"):
                     asg_title = assignment.get("title", "Assignment") if assignment else "Assignment"
                     total = assignment.get("total_marks", 100) if assignment else 100
@@ -1276,7 +1286,7 @@ def get_submissions():
             result = []
             for s in submissions:
                 sd = _to_dict(s)
-                assignment = assignments_col.find_one({"$or": [{"id": sd.get("assignment_id")}, {"id": str(sd.get("assignment_id"))}]})
+                assignment = assignments_col.find_one({"$or": [{"id": sd.get("assignment_id")}, {"id": str(sd.get("assignment_id"))}, {"_id": _safe_object_id(sd.get("assignment_id"))}]})
                 if assignment:
                     sd["assignment_title"] = assignment.get("title")
                     sd["total_marks"] = assignment.get("total_marks")
@@ -1306,7 +1316,7 @@ def review_submission():
     if _db_ok():
         try:
             oid = _safe_object_id(submission_id)
-            query = {"_id": oid} if oid else {"id": _normalize_id(submission_id)}
+            query = {"$or": [{"_id": oid}, {"id": _normalize_id(submission_id)}]} if oid else {"id": _normalize_id(submission_id)}
             submission = student_marks_col.find_one(query)
             
             student_marks_col.update_one(query, {"$set": {
@@ -1357,7 +1367,7 @@ def get_student_data():
             enriched_assignments = []
             for a in assignments:
                 ad = _to_dict(a)
-                batch = batches_col.find_one({"$or": [{"id": ad.get("batch_id")}, {"id": str(ad.get("batch_id"))}]})
+                batch = batches_col.find_one({"$or": [{"id": ad.get("batch_id")}, {"id": str(ad.get("batch_id"))}, {"_id": _safe_object_id(ad.get("batch_id"))}]})
                 ad["batch_name"] = batch["name"] if batch else None
 
                 mark = student_marks_col.find_one({
@@ -1420,8 +1430,8 @@ def submit_assignment():
             now_iso = datetime.now().isoformat()
             existing = student_marks_col.find_one({
                 "$and": [
-                    {"$or": [{"student_id": sid}, {"student_id": str(sid)}]},
-                    {"$or": [{"assignment_id": aid}, {"assignment_id": str(aid)}]}
+                    {"$or": [{"student_id": sid}, {"student_id": str(sid)}, {"student_id": _safe_object_id(sid)}]},
+                    {"$or": [{"assignment_id": aid}, {"assignment_id": str(aid)}, {"assignment_id": _safe_object_id(aid)}]}
                 ]
             })
 
@@ -1508,7 +1518,7 @@ def request_counseling():
             sb = student_batches_col.find_one({"student_id": _id_query(student_id)})
             if sb:
                 batch_id = sb.get("batch_id")
-                batch = batches_col.find_one({"$or": [{"id": _normalize_id(batch_id)}, {"id": str(batch_id)}]})
+                batch = batches_col.find_one({"$or": [{"id": _normalize_id(batch_id)}, {"id": str(batch_id)}, {"_id": _safe_object_id(batch_id)}]})
                 if batch and batch.get("teacher_id"):
                     teacher_email = get_target_email(user_id=batch.get("teacher_id"))
 
@@ -1563,7 +1573,7 @@ def analyze_db_students():
                 total_obtained = sum(float(m.get("obtained_marks", 0)) for m in marks_records)
                 total_possible = 0
                 for m in marks_records:
-                    assign = assignments_col.find_one({"id": _normalize_id(m.get("assignment_id"))})
+                    assign = assignments_col.find_one({"$or": [{"id": _normalize_id(m.get("assignment_id"))}, {"_id": _safe_object_id(m.get("assignment_id"))}]})
                     total_possible += float(assign.get("total_marks", 100)) if assign else 100
                 calc_marks = (total_obtained / total_possible * 100) if total_possible > 0 else 70.0
             else:
@@ -1712,6 +1722,7 @@ def scan_anomalies():
         return jsonify({"success": False, "message": str(e)}), 500
 
 
+@app.route("/api/generate-report", methods=["POST"])
 @role_required(["administrator", "analyst", "teacher"])
 def generate_report():
     try:
@@ -1848,7 +1859,7 @@ def resend_report_mail(report_id):
     report = None
     if _db_ok():
         oid = _safe_object_id(report_id)
-        report = reports_col.find_one({"_id": oid}) if oid else reports_col.find_one({"id": _normalize_id(report_id)})
+        report = reports_col.find_one({"$or": [{"_id": oid}, {"id": _normalize_id(report_id)}]})
 
     if not report:
         return jsonify({"success": False, "message": "Report artifact not found."}), 404
@@ -2079,10 +2090,10 @@ def profile():
                     if not user or not bcrypt.checkpw(curr_pw.encode('utf-8'), pw_hash):
                         return jsonify({"success": False, "message": "Current password is incorrect"}), 400
                     hashed = bcrypt.hashpw(new_pw.encode('utf-8'), bcrypt.gensalt())
-                    users_col.update_one({"id": _normalize_id(user_id)}, {"$set": {"password": hashed}})
+                    users_col.update_one({"$or": [{"id": _normalize_id(user_id)}, {"id": str(user_id)}, {"_id": _safe_object_id(user_id)}]}, {"$set": {"password": hashed}})
 
                 if name:
-                    users_col.update_one({"id": _normalize_id(user_id)}, {"$set": {"name": name}})
+                    users_col.update_one({"$or": [{"id": _normalize_id(user_id)}, {"id": str(user_id)}, {"_id": _safe_object_id(user_id)}]}, {"$set": {"name": name}})
                     session["name"] = name
                 return jsonify({"success": True, "message": "Profile updated!"})
             except Exception as e:
@@ -2100,7 +2111,7 @@ def save_notification_settings():
     user_id = session.get("user_id")
     if _db_ok():
         users_col.update_one(
-            {"id": _normalize_id(user_id)},
+            {"$or": [{"id": _normalize_id(user_id)}, {"id": str(user_id)}, {"_id": _safe_object_id(user_id)}]},
             {"$set": {"notification_preferences": data}}
         )
     return jsonify({"success": True, "message": "Alert preferences saved successfully!"})
@@ -2139,7 +2150,7 @@ def get_all_alerts():
         aid = request.args.get("id")
         if aid and _db_ok():
             oid = _safe_object_id(aid)
-            query = {"_id": oid} if oid else {"id": _normalize_id(aid)}
+            query = {"$or": [{"_id": oid}, {"id": _normalize_id(aid)}]} if oid else {"id": _normalize_id(aid)}
             alerts_col.update_one(query, {"$set": {"status": "acknowledged"}})
             return jsonify({"success": True, "message": "Alert acknowledged!"})
     
@@ -2216,44 +2227,108 @@ def get_system_status():
 
 
 # ============================================================
-# ADMIN DATA MATRIX ROUTES (Fixes N/A values and Purge actions)
+# ADMIN DATA MATRIX ROUTES
 # ============================================================
 
-@app.route("/api/admin/assignments", methods=["GET"])
+@app.route("/api/admin/assignments", methods=["GET", "POST", "PUT", "DELETE"])
 @role_required(["administrator"])
-def admin_get_assignments():
-    if _db_ok():
-        assignments = list(assignments_col.find().sort("_id", -1))
-        result = []
-        for a in assignments:
-            ad = _to_dict(a)
-            batch = batches_col.find_one({"$or": [{"id": ad.get("batch_id")}, {"id": str(ad.get("batch_id"))}]})
-            ad["batch_name"] = batch["name"] if batch else "Unassigned"
-            teacher = _find_user_by_id(ad.get("teacher_id"))
-            ad["teacher_name"] = teacher.get("name") if teacher else "Unassigned"
-            result.append(ad)
-        return jsonify({"success": True, "assignments": result})
-    return jsonify({"success": True, "assignments": []})
+def admin_manage_assignments():
+    if request.method == "GET":
+        if _db_ok():
+            assignments = list(assignments_col.find().sort("_id", -1))
+            result = []
+            for a in assignments:
+                ad = _to_dict(a)
+                batch = batches_col.find_one({"$or": [{"id": ad.get("batch_id")}, {"id": str(ad.get("batch_id"))}, {"_id": _safe_object_id(ad.get("batch_id"))}]})
+                ad["batch_name"] = batch["name"] if batch else "Unassigned"
+                teacher = _find_user_by_id(ad.get("teacher_id"))
+                ad["teacher_name"] = teacher.get("name") if teacher else "Unassigned"
+                result.append(ad)
+            return jsonify({"success": True, "assignments": result})
+        return jsonify({"success": True, "assignments": []})
+        
+    elif request.method == "POST":
+        data = request.get_json() or {}
+        if _db_ok():
+            assignment_id = _next_id(assignments_col)
+            batch_id = _normalize_id(data.get("batch_id"))
+            
+            batch = batches_col.find_one({"$or": [{"id": batch_id}, {"id": str(batch_id)}, {"_id": _safe_object_id(batch_id)}]})
+            tid = batch.get("teacher_id") if batch else session.get("user_id")
+            
+            assignments_col.insert_one({
+                "id": assignment_id, "batch_id": batch_id,
+                "teacher_id": tid, "title": data.get("title"),
+                "subject": data.get("subject"), "total_marks": data.get("total_marks"),
+                "due_date": data.get("due_date"), "created_at": datetime.now().isoformat()
+            })
+            log_event("Assignment Created", f"Admin published assignment: {data.get('title')}")
+            return jsonify({"success": True, "message": "Assignment created successfully!", "assignment_id": assignment_id})
+        return jsonify({"success": True, "message": "Assignment created!"})
+        
+    elif request.method == "PUT":
+        data = request.get_json() or {}
+        if _db_ok():
+            assignment_id = _normalize_id(data.get("id") or data.get("_id"))
+            batch_id = _normalize_id(data.get("batch_id"))
+            
+            update_data = {
+                "title": data.get("title"),
+                "subject": data.get("subject"),
+                "batch_id": batch_id,
+                "total_marks": data.get("total_marks"),
+                "due_date": data.get("due_date")
+            }
+            
+            batch = batches_col.find_one({"$or": [{"id": batch_id}, {"id": str(batch_id)}, {"_id": _safe_object_id(batch_id)}]})
+            if batch and batch.get("teacher_id"):
+                update_data["teacher_id"] = batch.get("teacher_id")
 
-@app.route("/api/admin/marks", methods=["GET"])
+            assignments_col.update_one(
+                {"$or": [{"id": assignment_id}, {"id": str(assignment_id)}, {"_id": _safe_object_id(assignment_id)}]},
+                {"$set": update_data}
+            )
+            return jsonify({"success": True, "message": "Assignment updated successfully!"})
+        return jsonify({"success": True, "message": "Assignment updated!"})
+        
+    elif request.method == "DELETE":
+        assignment_id = request.args.get("id")
+        if _db_ok():
+            aid = _normalize_id(assignment_id)
+            assignments_col.delete_one({"$or": [{"id": aid}, {"id": str(aid)}, {"_id": _safe_object_id(aid)}]})
+            student_marks_col.delete_many({"$or": [{"assignment_id": aid}, {"assignment_id": str(aid)}]})
+            return jsonify({"success": True, "message": "Assignment deleted."})
+        return jsonify({"success": True, "message": "Assignment deleted."})
+
+
+@app.route("/api/admin/marks", methods=["GET", "DELETE"])
 @role_required(["administrator"])
-def admin_get_marks():
-    if _db_ok():
-        submissions = list(student_marks_col.find().sort("submitted_at", -1))
-        result = []
-        for s in submissions:
-            sd = _to_dict(s)
-            assignment = assignments_col.find_one({"$or": [{"id": sd.get("assignment_id")}, {"id": str(sd.get("assignment_id"))}]})
-            if assignment:
-                sd["assignment_title"] = assignment.get("title")
-                sd["total_marks"] = assignment.get("total_marks")
-            user = _find_user_by_id(sd.get("student_id"))
-            sd["student_name"] = user.get("name") if user else "Unknown"
-            result.append(sd)
-        return jsonify({"success": True, "marks": result})
-    return jsonify({"success": True, "marks": []})
+def admin_manage_marks():
+    if request.method == "GET":
+        if _db_ok():
+            submissions = list(student_marks_col.find().sort("submitted_at", -1))
+            result = []
+            for s in submissions:
+                sd = _to_dict(s)
+                assignment = assignments_col.find_one({"$or": [{"id": sd.get("assignment_id")}, {"id": str(sd.get("assignment_id"))}, {"_id": _safe_object_id(sd.get("assignment_id"))}]})
+                if assignment:
+                    sd["assignment_title"] = assignment.get("title")
+                    sd["total_marks"] = assignment.get("total_marks")
+                user = _find_user_by_id(sd.get("student_id"))
+                sd["student_name"] = user.get("name") if user else "Unknown"
+                result.append(sd)
+            return jsonify({"success": True, "marks": result})
+        return jsonify({"success": True, "marks": []})
+        
+    elif request.method == "DELETE":
+        mark_id = request.args.get("id")
+        if _db_ok():
+            mid = _normalize_id(mark_id)
+            student_marks_col.delete_one({"$or": [{"id": mid}, {"id": str(mid)}, {"_id": _safe_object_id(mid)}]})
+            return jsonify({"success": True, "message": "Mark record purged."})
+        return jsonify({"success": True, "message": "Mark deleted."})
 
-# --- PREDICTIONS ROUTE (Fixes N/A Probability and Grade) ---
+# --- PREDICTIONS ROUTE ---
 @app.route("/api/admin/predictions", methods=["GET"])
 @role_required(["administrator"])
 def admin_get_predictions():
@@ -2262,14 +2337,10 @@ def admin_get_predictions():
         result = []
         for p in preds:
             pd_dict = _to_dict(p)
-            # Map database 'confidence' to frontend 'probability'
             conf = pd_dict.get("confidence", 0)
             pd_dict["probability"] = f"{round(float(conf) * 100, 1)}%" if conf else "N/A"
-            
-            # Ensure predicted_grade exists
             if not pd_dict.get("predicted_grade"):
                 pd_dict["predicted_grade"] = "N/A"
-                
             result.append(pd_dict)
         return jsonify({"success": True, "predictions": result})
     return jsonify({"success": True, "predictions": []})
@@ -2279,13 +2350,13 @@ def admin_get_predictions():
 def admin_delete_prediction(pred_id):
     if _db_ok():
         oid = _safe_object_id(pred_id)
-        query = {"_id": oid} if oid else {"id": _normalize_id(pred_id)}
+        query = {"$or": [{"_id": oid}, {"id": _normalize_id(pred_id)}]} if oid else {"id": _normalize_id(pred_id)}
         predictions_col.delete_one(query)
         return jsonify({"success": True, "message": "Prediction record purged successfully."})
     return jsonify({"success": False, "message": "Database offline."}), 500
 
 
-# --- HDFS RECORDS ROUTE (Fixes N/A GPA, LMS, and Batch) ---
+# --- HDFS RECORDS ROUTE ---
 @app.route("/api/admin/records", methods=["GET"])
 @role_required(["administrator"])
 def admin_get_records():
@@ -2296,22 +2367,18 @@ def admin_get_records():
             rd = _to_dict(r)
             sid = rd.get("student_id")
             
-            # Fetch student name
             student = _find_user_by_id(sid)
             rd["student_name"] = student.get("name") if student else "Unknown Student"
             
-            # Resolve Assigned Batch
             batch_assignment = student_batches_col.find_one({"student_id": {"$in": [sid, str(sid)]}})
             if batch_assignment:
-                batch = batches_col.find_one({"$or": [{"id": batch_assignment.get("batch_id")}, {"id": str(batch_assignment.get("batch_id"))}]})
+                batch = batches_col.find_one({"$or": [{"id": batch_assignment.get("batch_id")}, {"id": str(batch_assignment.get("batch_id"))}, {"_id": _safe_object_id(batch_assignment.get("batch_id"))}]})
                 rd["batch_name"] = batch.get("name") if batch else "Unassigned"
             else:
                 rd["batch_name"] = "Unassigned"
                 
-            # Map Database keys to Frontend keys
             rd["gpa_index"] = f"{rd.get('marks', 'N/A')}%"
             rd["lms_score"] = f"{rd.get('lms_activity', 'N/A')}%"
-            
             result.append(rd)
         return jsonify({"success": True, "records": result})
     return jsonify({"success": True, "records": []})
@@ -2321,7 +2388,7 @@ def admin_get_records():
 def admin_delete_record(record_id):
     if _db_ok():
         oid = _safe_object_id(record_id)
-        query = {"_id": oid} if oid else {"id": _normalize_id(record_id)}
+        query = {"$or": [{"_id": oid}, {"id": _normalize_id(record_id)}]} if oid else {"id": _normalize_id(record_id)}
         educational_records_col.delete_one(query)
         return jsonify({"success": True, "message": "Educational record purged successfully."})
     return jsonify({"success": False, "message": "Database offline."}), 500

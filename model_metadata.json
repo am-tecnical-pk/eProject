@@ -1,6 +1,6 @@
 {
-  "risk_model_accuracy": 0.8586,
-  "grade_model_r2": 0.7702,
+  "risk_model_accuracy": 0.8557,
+  "grade_model_r2": 0.7701,
   "demand_model_r2": 0.9901,
   "features": [
     "attendance",
@@ -13,5 +13,5 @@
     "Medium",
     "High"
   ],
-  "trained_at": "2026-09-19T13:31:32.488171"
+  "trained_at": "2026-09-19T16:01:50.698698"
 }

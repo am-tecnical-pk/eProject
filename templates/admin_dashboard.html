@@ -630,6 +630,22 @@
 <script>
 const API = '/api/admin';
 
+// Helper to robustly select dropdown options even with mismatched types (int vs string)
+function setDropdownValue(selectId, value) {
+    const sel = document.getElementById(selectId);
+    if (!sel) return;
+    const strVal = String(value || '');
+    let found = false;
+    for (let i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value === strVal) {
+            sel.selectedIndex = i;
+            found = true;
+            break;
+        }
+    }
+    if (!found) sel.value = ''; // fallback to unassigned
+}
+
 function showAlert(msg, type='success') {
     const box = document.getElementById('alertBox');
     box.textContent = msg;
@@ -683,7 +699,7 @@ function goToTab(tabName) {
 // ================= OVERVIEW & CLUSTER STATS =================
 async function loadOverview() {
     try {
-        const res = await fetch(API + '/overview');
+        const res = await fetch(API + '/overview', { cache: 'no-store' });
         const d = await res.json();
         if (d.success) {
             document.getElementById('sUsers').textContent = d.users || 0;
@@ -710,7 +726,7 @@ async function loadOverview() {
 // ================= USERS CRUD =================
 async function loadUsers() {
     try {
-        const res = await fetch(API + '/users');
+        const res = await fetch(API + '/users', { cache: 'no-store' });
         const d = await res.json();
         const tb = document.getElementById('tbUsers');
         if (!d.success || !d.users || !d.users.length) {
@@ -749,7 +765,7 @@ function openUserModal(u=null) {
     document.getElementById('editUserId').value = u ? (u.id || u._id) : '';
     document.getElementById('userName').value = u ? u.name : '';
     document.getElementById('userEmail').value = u ? u.email : '';
-    document.getElementById('userRole').value = u ? u.role : 'student';
+    setDropdownValue('userRole', u ? u.role : 'student');
     document.getElementById('userPassword').value = '';
     
     const pwdGroup = document.getElementById('passwordFieldGroup');
@@ -813,7 +829,7 @@ document.getElementById('userForm').addEventListener('submit', async function(e)
 // ================= STUDENTS =================
 async function loadStudents() {
     try {
-        const res = await fetch(API + '/students');
+        const res = await fetch(API + '/students', { cache: 'no-store' });
         const d = await res.json();
         const tb = document.getElementById('tbStudents');
         if (!d.success || !d.students || !d.students.length) {
@@ -843,21 +859,27 @@ async function loadStudents() {
 // ================= BATCHES & CHECKLIST =================
 async function loadTeachers() {
     try {
-        const res = await fetch(API + '/teachers');
+        const res = await fetch(API + '/teachers', { cache: 'no-store' });
         const d = await res.json();
         if (d.success && d.teachers) {
             const sel = document.getElementById('batchTeacher');
-            sel.innerHTML = '<option value="">-- Unassigned --</option>';
+            const currentVal = sel.value; // Store value to persist across UI refreshes
+            let htmlOptions = '<option value="">-- Unassigned --</option>';
             d.teachers.forEach(t => {
-                sel.innerHTML += `<option value="${t.id || t._id}">${t.name}</option>`;
+                const tid = t.id || t._id;
+                htmlOptions += `<option value="${tid}">${t.name}</option>`;
             });
+            sel.innerHTML = htmlOptions;
+            if (currentVal) {
+                setDropdownValue('batchTeacher', currentVal);
+            }
         }
     } catch(e) {}
 }
 
 async function loadBatches() {
     try {
-        const res = await fetch(API + '/batches');
+        const res = await fetch(API + '/batches', { cache: 'no-store' });
         const d = await res.json();
         const tb = document.getElementById('tbBatches');
         if (!d.success || !d.batches || !d.batches.length) {
@@ -887,7 +909,11 @@ async function loadBatches() {
 function openBatchModal(b=null) {
     document.getElementById('editBatchId').value = b ? (b.id || b._id) : '';
     document.getElementById('batchName').value = b ? b.name : '';
-    document.getElementById('batchTeacher').value = b ? (b.teacher_id || '') : '';
+    
+    // Safely assign faculty to the dropdown avoiding int/string DOM mapping issues
+    const targetTid = b ? (b.teacher_id || '') : '';
+    setDropdownValue('batchTeacher', targetTid);
+    
     document.getElementById('batchModalTitle').textContent = b ? 'Modify Batch Configuration' : 'Create Batch Cohort';
     openModal('batchModal');
 }
@@ -900,6 +926,7 @@ async function deleteBatch(id) {
         if (d.success) {
             showAlert(d.message || 'Batch removed');
             loadBatches();
+            loadAssignmentsSelect();
             loadOverview();
         } else {
             showAlert(d.message || 'Failed', 'error');
@@ -931,6 +958,8 @@ document.getElementById('batchForm').addEventListener('submit', async function(e
             loadBatches();
             loadAssignmentsSelect();
             loadOverview();
+        } else {
+            showAlert(d.message || 'Failed to update cohort mapping', 'error');
         }
     } catch(e) {
         showAlert('Error updating batch', 'error');
@@ -947,8 +976,8 @@ async function openBatchStudentsModal(batchId, batchName) {
     document.getElementById('searchStudents').value = '';
     try {
         const [studentsRes, batchStudentsRes] = await Promise.all([
-            fetch(API + '/students'),
-            fetch(API + '/batch-students/' + batchId)
+            fetch(API + '/students', { cache: 'no-store' }),
+            fetch(API + '/batch-students/' + batchId, { cache: 'no-store' })
         ]);
         const studentsData = await studentsRes.json();
         const batchData = await batchStudentsRes.json();
@@ -1017,21 +1046,27 @@ async function saveBatchStudents() {
 // ================= ASSIGNMENTS =================
 async function loadAssignmentsSelect() {
     try {
-        const res = await fetch(API + '/batches');
+        const res = await fetch(API + '/batches', { cache: 'no-store' });
         const d = await res.json();
         if (d.success && d.batches) {
             const sel = document.getElementById('asgBatch');
-            sel.innerHTML = '<option value="">-- Select Batch --</option>';
+            const currentVal = sel.value; // Store state
+            let htmlOptions = '<option value="">-- Select Batch --</option>';
             d.batches.forEach(b => {
-                sel.innerHTML += `<option value="${b.id || b._id}">${b.name}</option>`;
+                const bid = b.id || b._id;
+                htmlOptions += `<option value="${bid}">${b.name}</option>`;
             });
+            sel.innerHTML = htmlOptions;
+            if (currentVal) {
+                setDropdownValue('asgBatch', currentVal);
+            }
         }
     } catch(e) {}
 }
 
 async function loadAssignments() {
     try {
-        const res = await fetch(API + '/assignments');
+        const res = await fetch(API + '/assignments', { cache: 'no-store' });
         const d = await res.json();
         const tb = document.getElementById('tbAssignments');
         if (!d.success || !d.assignments || !d.assignments.length) {
@@ -1061,7 +1096,7 @@ function openAssignmentModal(a=null) {
     document.getElementById('editAssignmentId').value = a ? (a.id || a._id) : '';
     document.getElementById('asgTitle').value = a ? a.title : '';
     document.getElementById('asgSubject').value = a ? a.subject : '';
-    document.getElementById('asgBatch').value = a ? (a.batch_id || '') : '';
+    setDropdownValue('asgBatch', a ? (a.batch_id || '') : '');
     document.getElementById('asgTotal').value = a ? a.total_marks : '100';
     document.getElementById('asgDue').value = a ? a.due_date : '';
     document.getElementById('assignmentModalTitle').textContent = a ? 'Edit Assignment' : 'Create Course Assignment';
@@ -1116,7 +1151,7 @@ document.getElementById('assignmentForm').addEventListener('submit', async funct
 // ================= MARKS =================
 async function loadMarks() {
     try {
-        const res = await fetch(API + '/marks');
+        const res = await fetch(API + '/marks', { cache: 'no-store' });
         const d = await res.json();
         const tb = document.getElementById('tbMarks');
         if (!d.success || !d.marks || !d.marks.length) {
@@ -1163,7 +1198,7 @@ async function deleteMark(id) {
 // ================= PREDICTIONS =================
 async function loadPredictions() {
     try {
-        const res = await fetch(API + '/predictions');
+        const res = await fetch(API + '/predictions', { cache: 'no-store' });
         const d = await res.json();
         const tb = document.getElementById('tbPredictions');
         if (!d.success || !d.predictions || !d.predictions.length) {
@@ -1171,7 +1206,7 @@ async function loadPredictions() {
             return;
         }
         tb.innerHTML = d.predictions.map(p => {
-            const risk = (p.risk_level || 'low').toLowerCase();
+            const risk = (p.risk_level || p.risk || 'low').toLowerCase();
             const color = risk === 'high' ? '#DC2626' : risk === 'medium' ? '#0B1F33' : '#1677FF';
             const bg = risk === 'high' ? 'rgba(220,38,38,0.08)' : risk === 'medium' ? 'rgba(11,31,51,0.05)' : 'rgba(22,119,255,0.08)';
             return `
@@ -1183,7 +1218,7 @@ async function loadPredictions() {
                         </span>
                     </td>
                     <td style="padding:12px 14px;text-align:center;font-weight:600;">
-                        ${p.risk_probability != null ? Math.round(p.risk_probability * 100) + '%' : 'N/A'}
+                        ${p.probability || (p.confidence ? Math.round(p.confidence * 100) + '%' : 'N/A')}
                     </td>
                     <td style="padding:12px 14px;text-align:center;">
                         <span style="background:rgba(22,119,255,0.08);color:#1677FF;padding:3px 10px;border-radius:8px;font-weight:700;">${p.predicted_grade || p.grade || 'N/A'}</span>
@@ -1217,7 +1252,7 @@ async function deletePrediction(id) {
 // ================= ALERTS =================
 async function loadAlerts() {
     try {
-        const res = await fetch(API + '/alerts');
+        const res = await fetch(API + '/alerts', { cache: 'no-store' });
         const d = await res.json();
         const tb = document.getElementById('tbAlerts');
         if (!d.success || !d.alerts || !d.alerts.length) {
@@ -1264,7 +1299,7 @@ async function dismissAlert(id) {
 // ================= DISTRIBUTED RECORDS =================
 async function loadRecords() {
     try {
-        const res = await fetch(API + '/records');
+        const res = await fetch(API + '/records', { cache: 'no-store' });
         const d = await res.json();
         const tb = document.getElementById('tbRecords');
         if (!d.success || !d.records || !d.records.length) {
@@ -1276,8 +1311,8 @@ async function loadRecords() {
                 <td style="padding:12px 14px;font-weight:600;color:#111827;">${r.student_name || r.name || 'ID #' + r.student_id}</td>
                 <td style="padding:12px 14px;"><span style="background:#F1F5F9;padding:2px 8px;border-radius:6px;font-size:12px;">${r.batch || r.batch_name || 'N/A'}</span></td>
                 <td style="padding:12px 14px;text-align:center;font-weight:600;">${r.attendance != null ? r.attendance + '%' : 'N/A'}</td>
-                <td style="padding:12px 14px;text-align:center;font-weight:700;color:#1677FF;">${r.gpa != null ? r.gpa : 'N/A'}</td>
-                <td style="padding:12px 14px;text-align:center;">${r.score != null ? r.score : 'N/A'}</td>
+                <td style="padding:12px 14px;text-align:center;font-weight:700;color:#1677FF;">${r.gpa != null ? r.gpa : (r.gpa_index || 'N/A')}</td>
+                <td style="padding:12px 14px;text-align:center;">${r.score != null ? r.score : (r.lms_score || 'N/A')}</td>
                 <td style="padding:12px 14px;text-align:right;">
                     <button class="btn btn-sm" onclick="deleteRecord('${r.id || r._id}')" style="padding:4px 10px;border:1px solid #FECACA;background:#FEF2F2;color:#DC2626;border-radius:4px;cursor:pointer;">Purge</button>
                 </td>
@@ -1347,7 +1382,7 @@ async function handleGenerateReport(e) {
 
 async function loadReports() {
     try {
-        const res = await fetch('/api/reports');
+        const res = await fetch('/api/reports', { cache: 'no-store' });
         const d = await res.json();
         const tb = document.getElementById('tbReports');
         if (!d.success || !d.reports || !d.reports.length) {
