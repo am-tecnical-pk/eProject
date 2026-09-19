@@ -72,7 +72,20 @@ def _db_ok():
 def _next_id(collection):
     if not _db_ok():
         return int(datetime.now().timestamp() * 1000) % 1000000
+    
     counter = db["counters"]
+    
+    # Self-healing counter: Sync with actual collection max ID to prevent seed collisions
+    seq_doc = counter.find_one({"_id": collection.name})
+    if not seq_doc:
+        max_doc = collection.find_one({}, sort=[("id", -1)])
+        try:
+            start_seq = int(max_doc["id"]) if max_doc and "id" in max_doc else 1000
+        except (ValueError, TypeError):
+            start_seq = 1000
+            
+        counter.insert_one({"_id": collection.name, "seq": start_seq})
+
     result = counter.find_one_and_update(
         {"_id": collection.name},
         {"$inc": {"seq": 1}},
@@ -152,6 +165,10 @@ def _find_user_by_id(uid):
         user = users_col.find_one({"id": str(nid)})
     if not user and _safe_object_id(uid):
         user = users_col.find_one({"_id": _safe_object_id(uid)})
+    
+    # Robust Fallback if frontend sends the teacher's string name instead of ID
+    if not user and isinstance(uid, str):
+        user = users_col.find_one({"name": uid})
     return user
 
 
@@ -220,6 +237,12 @@ def send_email(to_email, subject, body, html_body=None, attachment=None, attachm
         print("[SMTP ERROR] No recipient email provided")
         return False
 
+    # Bypass dummy domains to prevent Gmail from issuing bounce-back spam
+    dummy_domains = ["@student.com", "@edupredict.com", "@example.com", "test", "demo"]
+    if any(d in to_email.lower() for d in dummy_domains):
+        print(f"[SMTP BYPASS] Dummy email detected ({to_email}). Skipping actual dispatch.")
+        return True
+
     try:
         msg = MIMEMultipart('alternative')
         sender = getattr(config, 'EMAIL_USER', EMAIL_USER)
@@ -246,12 +269,9 @@ def send_email(to_email, subject, body, html_body=None, attachment=None, attachm
         user = getattr(config, 'EMAIL_USER', EMAIL_USER)
         password = getattr(config, 'EMAIL_PASSWORD', EMAIL_PASSWORD)
 
-        # DEBUG: Print credentials (password hide karke)
-        print(f"[SMTP DEBUG] Host: {host}:{port} | User: {user} | Password Length: {len(password) if password else 0}")
-
         if user and password and password != "your-app-password":
             server = smtplib.SMTP(host, port, timeout=15)
-            server.set_debuglevel(1)  # <-- YEH LINE ADD KAREIN (detailed SMTP logs)
+            server.set_debuglevel(1)
             server.starttls()
             server.login(user, password)
             server.send_message(msg)
@@ -259,18 +279,12 @@ def send_email(to_email, subject, body, html_body=None, attachment=None, attachm
             print(f"[SMTP SUCCESS] ✅ Email delivered to {to_email}")
             return True
         else:
-            print(f"[SMTP SKIPPED] ⚠️ Credentials missing or placeholder. Email NOT sent to {to_email}")
-            return False  # <-- Pehle True tha, ab False karein
-    except smtplib.SMTPAuthenticationError as e:
-        print(f"[SMTP AUTH ERROR] ❌ Gmail ne login reject kiya: {e}")
-        print("👉 Check karein: App Password sahi hai? 2-Step Verification on hai?")
-        return False
-    except smtplib.SMTPException as e:
-        print(f"[SMTP PROTOCOL ERROR] ❌ {e}")
-        return False
+            print(f"[SMTP SKIPPED] ⚠️ Credentials missing. Email NOT sent to {to_email}")
+            return False
     except Exception as e:
         print(f"[SMTP FATAL ERROR] ❌ {type(e).__name__}: {e}")
         return False
+
 
 def build_html_email_template(title, headline, message, metrics=None, action_url=None):
     metrics_html = ""
@@ -324,7 +338,6 @@ def login():
         if _db_ok():
             try:
                 import re
-                # Case-insensitive query to match Admin.ep9@gmail.com or admin.ep9@gmail.com
                 user_doc = users_col.find_one({"email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}})
                 if user_doc:
                     pw_hash = user_doc.get("password")
@@ -447,7 +460,7 @@ def dashboard():
 
 
 # ============================================================
-# DATASET UPLOAD & INGESTION (WITH AUTOMATED SMTP TRIGGER)
+# DATASET UPLOAD & INGESTION
 # ============================================================
 
 @app.route("/api/upload", methods=["POST"])
@@ -865,7 +878,22 @@ def get_teachers():
 def get_students():
     if _db_ok():
         students = list(users_col.find({"role": "student", "is_active": 1}))
-        return jsonify({"success": True, "students": _to_dicts(students)})
+        enriched_students = []
+        
+        for s in students:
+            sd = _to_dict(s)
+            batch_assignment = student_batches_col.find_one({
+                "student_id": {"$in": [sd.get("id"), str(sd.get("id"))]}
+            })
+            
+            if batch_assignment:
+                sd["enrollment_status"] = "Assigned"
+            else:
+                sd["enrollment_status"] = "Unassigned"
+                
+            enriched_students.append(sd)
+            
+        return jsonify({"success": True, "students": enriched_students})
     return jsonify({"success": True, "students": []})
 
 
@@ -920,10 +948,16 @@ def manage_batches():
         data = request.get_json() or {}
         if _db_ok():
             batch_id = _next_id(batches_col)
-            tid = _normalize_id(data.get("teacher_id"))
+            # Resolve teacher string name to ID if frontend is sending innerText instead of Value
+            tid = data.get("teacher_id") or data.get("instructor_id") or data.get("assigned_instructor")
+            teacher = _find_user_by_id(tid)
+            if teacher:
+                tid = teacher.get("id")
+            tid = _normalize_id(tid)
+
             batches_col.insert_one({
                 "id": batch_id,
-                "name": data.get("name"),
+                "name": data.get("name") or data.get("batch_name") or data.get("cohort_name"),
                 "teacher_id": tid,
                 "created_at": datetime.now().isoformat()
             })
@@ -934,10 +968,20 @@ def manage_batches():
     elif request.method == "PUT":
         data = request.get_json() or {}
         if _db_ok():
-            tid = _normalize_id(data.get("teacher_id"))
+            # Resolve teacher string name to ID if frontend is sending innerText
+            tid = data.get("teacher_id") or data.get("instructor_id") or data.get("assigned_instructor")
+            teacher = _find_user_by_id(tid)
+            if teacher:
+                tid = teacher.get("id")
+            tid = _normalize_id(tid)
+            
+            batch_id = _normalize_id(data.get("id") or data.get("_id") or data.get("batch_id"))
+            name = data.get("name") or data.get("batch_name") or data.get("cohort_name")
+            
+            # Robust ID matching for Batch Updates
             batches_col.update_one(
-                {"id": _normalize_id(data.get("id"))},
-                {"$set": {"name": data.get("name"), "teacher_id": tid}}
+                {"$or": [{"id": batch_id}, {"id": str(batch_id)}]},
+                {"$set": {"name": name, "teacher_id": tid}}
             )
             return jsonify({"success": True, "message": "Batch configuration updated!"})
         return jsonify({"success": True, "message": "Batch updated!"})
@@ -956,15 +1000,19 @@ def manage_batches():
 def manage_batch_students():
     if request.method == "POST":
         data = request.get_json() or {}
-        batch_id = _normalize_id(data.get("batch_id"))
+        batch_id = _normalize_id(data.get("batch_id") or data.get("id"))
         student_ids = data.get("student_ids", [])
+        if not isinstance(student_ids, list):
+            student_ids = [student_ids]
 
         if _db_ok():
             for sid in student_ids:
                 sid_norm = _normalize_id(sid)
                 existing = student_batches_col.find_one({
-                    "$or": [{"student_id": sid_norm}, {"student_id": str(sid_norm)}],
-                    "$or": [{"batch_id": batch_id}, {"batch_id": str(batch_id)}]
+                    "$and": [
+                        {"$or": [{"student_id": sid_norm}, {"student_id": str(sid_norm)}]},
+                        {"$or": [{"batch_id": batch_id}, {"batch_id": str(batch_id)}]}
+                    ]
                 })
                 if not existing:
                     student_batches_col.insert_one({"student_id": sid_norm, "batch_id": batch_id})
@@ -976,8 +1024,10 @@ def manage_batch_students():
         student_id = _normalize_id(request.args.get("student_id"))
         if _db_ok():
             student_batches_col.delete_many({
-                "$or": [{"batch_id": batch_id}, {"batch_id": str(batch_id)}],
-                "$or": [{"student_id": student_id}, {"student_id": str(student_id)}]
+                "$and": [
+                    {"$or": [{"batch_id": batch_id}, {"batch_id": str(batch_id)}]},
+                    {"$or": [{"student_id": student_id}, {"student_id": str(student_id)}]}
+                ]
             })
             return jsonify({"success": True, "message": "Learner removed from cohort."})
         return jsonify({"success": True, "message": "Learner removed."})
@@ -1004,20 +1054,25 @@ def get_batch_students(batch_id):
 @app.route("/api/teacher/data", methods=["GET"])
 @role_required(["teacher", "administrator"])
 def get_teacher_data():
-    teacher_id = session.get("user_id")
+    user_id = session.get("user_id")
+    role = session.get("role")
 
     if _db_ok():
-        teacher_query = _id_query(teacher_id)
-        batches = list(batches_col.find({"teacher_id": teacher_query}))
-        batch_ids = [b.get("id") for b in batches]
+        if role == "administrator":
+            batches = list(batches_col.find())
+            assignments = list(assignments_col.find().sort("_id", -1))
+        else:
+            teacher_query = _id_query(user_id)
+            batches = list(batches_col.find({"teacher_id": teacher_query}))
+            batch_ids = [b.get("id") for b in batches]
+            assignments = list(assignments_col.find({"$or": [
+                {"teacher_id": teacher_query},
+                {"batch_id": {"$in": batch_ids + [str(x) for x in batch_ids]}}
+            ]}).sort("_id", -1))
 
-        assignments = list(assignments_col.find({"$or": [
-            {"teacher_id": teacher_query},
-            {"batch_id": {"$in": batch_ids + [str(x) for x in batch_ids]}}
-        ]}).sort("_id", -1))
         assignment_ids = [a.get("id") for a in assignments]
-
         marks = list(student_marks_col.find({"assignment_id": {"$in": assignment_ids + [str(x) for x in assignment_ids]}}).sort("_id", -1))
+        
         enriched_marks = []
         for m in marks:
             md = _to_dict(m)
@@ -1035,38 +1090,48 @@ def get_teacher_data():
         for b in batches:
             bd = _to_dict(b)
             sb = list(student_batches_col.find({"$or": [{"batch_id": bd["id"]}, {"batch_id": str(bd["id"])}]}))
+            
             student_ids = [s["student_id"] for s in sb]
-            all_student_ids.update(student_ids)
-            students_list = list(users_col.find({"id": {"$in": student_ids}}))
+            normalized_sids = [x for x in list(set([_normalize_id(s) for s in student_ids] + [str(s) for s in student_ids])) if x is not None]
+            
+            all_student_ids.update(normalized_sids)
+            students_list = list(users_col.find({"id": {"$in": normalized_sids}}))
+            
             bd["student_names"] = ", ".join([s["name"] for s in students_list])
-            bd["student_count"] = len(student_ids)
+            bd["student_count"] = len(students_list)
             enriched_batches.append(bd)
 
         students = []
-        if all_student_ids:
-            all_sid = list(all_student_ids)
-            combined = list(set([_normalize_id(s) for s in all_sid] + [str(s) for s in all_sid]))
-            raw_students = list(users_col.find({"id": {"$in": combined}, "role": "student"}, {"password": 0}))
+        if role == "administrator":
+            raw_students = list(users_col.find({"role": "student"}, {"password": 0}))
+        else:
+            if all_student_ids:
+                all_sid = [x for x in list(all_student_ids) if x is not None]
+                raw_students = list(users_col.find({"id": {"$in": all_sid}, "role": "student"}, {"password": 0}))
+            else:
+                raw_students = []
 
-            for s in raw_students:
-                sd = _to_dict(s)
-                sid = sd.get("id")
-                pred = predictions_col.find_one({"student_id": {"$in": [str(sid), sid]}}, sort=[("_id", -1)])
-                sd["risk"] = pred.get("risk") if pred else "No prediction"
-                sd["confidence"] = round(pred.get("confidence", 0) * 100, 1) if pred else 0
-                sd["attendance"] = pred.get("attendance") if pred else "N/A"
-                sd["marks"] = pred.get("marks") if pred else "N/A"
-                sd["predicted_at"] = pred.get("predicted_at") if pred else None
-                students.append(sd)
+        for s in raw_students:
+            sd = _to_dict(s)
+            sid = sd.get("id")
+            pred = predictions_col.find_one({"student_id": {"$in": [str(sid), sid]}}, sort=[("_id", -1)])
+            sd["risk"] = pred.get("risk") if pred else "No prediction"
+            sd["confidence"] = round(pred.get("confidence", 0) * 100, 1) if pred else 0
+            sd["attendance"] = pred.get("attendance") if pred else "N/A"
+            sd["marks"] = pred.get("marks") if pred else "N/A"
+            sd["predicted_at"] = pred.get("predicted_at") if pred else None
+            students.append(sd)
 
+        enriched_assignments = []
         for a in assignments:
             ad = _to_dict(a)
             batch = batches_col.find_one({"$or": [{"id": ad.get("batch_id")}, {"id": str(ad.get("batch_id"))}]})
-            a["batch_name"] = batch["name"] if batch else None
+            ad["batch_name"] = batch["name"] if batch else None
+            enriched_assignments.append(ad)
 
         return jsonify({
             "success": True,
-            "assignments": _to_dicts(assignments),
+            "assignments": enriched_assignments,
             "marks": enriched_marks,
             "batches": enriched_batches,
             "students": students
@@ -1078,17 +1143,22 @@ def get_teacher_data():
 @app.route("/api/teacher/assignments", methods=["GET", "POST"])
 @role_required(["teacher", "administrator"])
 def teacher_assignments():
-    teacher_id = session.get("user_id")
+    user_id = session.get("user_id")
+    role = session.get("role")
 
     if request.method == "GET":
         if _db_ok():
-            teacher_query = _id_query(teacher_id)
-            assignments = list(assignments_col.find({"teacher_id": teacher_query}).sort("_id", -1))
+            if role == "administrator":
+                assignments = list(assignments_col.find().sort("_id", -1))
+            else:
+                teacher_query = _id_query(user_id)
+                assignments = list(assignments_col.find({"teacher_id": teacher_query}).sort("_id", -1))
+                
             result = []
             for a in assignments:
                 ad = _to_dict(a)
                 batch = batches_col.find_one({"$or": [{"id": ad.get("batch_id")}, {"id": str(ad.get("batch_id"))}]})
-                ad["batch_name"] = batch["name"] if batch else None
+                ad["batch_name"] = batch["name"] if batch else "Unassigned"
                 result.append(ad)
             return jsonify({"success": True, "assignments": result})
         return jsonify({"success": True, "assignments": []})
@@ -1104,7 +1174,7 @@ def teacher_assignments():
 
         if _db_ok():
             assignment_id = _next_id(assignments_col)
-            tid = _normalize_id(data.get("teacher_id", teacher_id))
+            tid = _normalize_id(data.get("teacher_id", user_id))
             assignments_col.insert_one({
                 "id": assignment_id, "batch_id": batch_id,
                 "teacher_id": tid, "title": title,
@@ -1116,7 +1186,8 @@ def teacher_assignments():
             if send_email_broadcast and batch_id:
                 sb = list(student_batches_col.find({"$or": [{"batch_id": batch_id}, {"batch_id": str(batch_id)}]}))
                 sids = [s["student_id"] for s in sb]
-                students = list(users_col.find({"id": {"$in": sids}}))
+                normalized_sids = [x for x in list(set([_normalize_id(s) for s in sids] + [str(s) for s in sids])) if x is not None]
+                students = list(users_col.find({"id": {"$in": normalized_sids}}))
 
                 for s in students:
                     s_email = s.get("email")
@@ -1142,8 +1213,10 @@ def grade_student():
     if _db_ok():
         try:
             existing = student_marks_col.find_one({
-                "$or": [{"student_id": student_id}, {"student_id": str(student_id)}],
-                "$or": [{"assignment_id": assignment_id}, {"assignment_id": str(assignment_id)}]
+                "$and": [
+                    {"$or": [{"student_id": student_id}, {"student_id": str(student_id)}]},
+                    {"$or": [{"assignment_id": assignment_id}, {"assignment_id": str(assignment_id)}]}
+                ]
             })
 
             now_iso = datetime.now().isoformat()
@@ -1346,8 +1419,10 @@ def submit_assignment():
 
             now_iso = datetime.now().isoformat()
             existing = student_marks_col.find_one({
-                "$or": [{"student_id": sid}, {"student_id": str(sid)}],
-                "$or": [{"assignment_id": aid}, {"assignment_id": str(aid)}]
+                "$and": [
+                    {"$or": [{"student_id": sid}, {"student_id": str(sid)}]},
+                    {"$or": [{"assignment_id": aid}, {"assignment_id": str(aid)}]}
+                ]
             })
 
             payload = {
@@ -1428,7 +1503,6 @@ def request_counseling():
         student_email = session.get("user_email", "")
         student_id = session.get("user_id")
 
-        # Dynamic Email Resolution with Robust Fallback
         teacher_email = None
         if _db_ok():
             sb = student_batches_col.find_one({"student_id": _id_query(student_id)})
@@ -1438,7 +1512,6 @@ def request_counseling():
                 if batch and batch.get("teacher_id"):
                     teacher_email = get_target_email(user_id=batch.get("teacher_id"))
 
-        # Fallback to default teacher role email if no specific batch mentor is found
         if not teacher_email:
             teacher_email = get_target_email(role="teacher") or "Teacher.ep9@gmail.com"
 
@@ -1452,7 +1525,6 @@ def request_counseling():
             metrics={"Student Name": student_name, "Student Email": student_email, "Timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
         )
 
-        print(f"[COUNSELING ROUTE] Routing email from student {student_email} to mentor {teacher_email}")
         sent = send_email(teacher_email, email_subject, email_body, html_body=html_body)
 
         if sent:
@@ -1574,7 +1646,7 @@ def scan_anomalies():
             # ===== ATTENDANCE ANOMALY =====
             if attendance < 75.0:
                 existing_alert = alerts_col.find_one({
-                    "student_id": str(sid),
+                    "student_id": {"$in": [sid, str(sid)]},
                     "alert_type": "Attendance Anomaly"
                 })
 
@@ -1582,6 +1654,7 @@ def scan_anomalies():
                     alerts_col.insert_one({
                         "alert_type": "Attendance Anomaly",
                         "severity": "critical" if attendance < 60.0 else "high",
+                        "status": "pending",
                         "message": f"Attendance dropped to {attendance}%, below institutional policy threshold (75%).",
                         "student_id": str(sid),
                         "student_name": s_name,
@@ -1596,14 +1669,14 @@ def scan_anomalies():
                             "metric_value": f"{attendance}%",
                             "severity": "critical" if attendance < 60.0 else "high",
                             "message": f"Attendance dropped to {attendance}%, below institutional policy threshold (75%).",
-                            "created_at": datetime.now().isoformat()
+                            "updated_at": datetime.now().isoformat()
                         }}
                     )
 
             # ===== GRADE DEGRADATION ANOMALY =====
             if avg_marks < 45.0:
                 existing_alert = alerts_col.find_one({
-                    "student_id": str(sid),
+                    "student_id": {"$in": [sid, str(sid)]},
                     "alert_type": "Grade Degradation"
                 })
 
@@ -1611,6 +1684,7 @@ def scan_anomalies():
                     alerts_col.insert_one({
                         "alert_type": "Grade Degradation",
                         "severity": "high",
+                        "status": "pending",
                         "message": f"Mean coursework grade plummeted to {round(avg_marks, 1)}%. Remedial support advised.",
                         "student_id": str(sid),
                         "student_name": s_name,
@@ -1624,7 +1698,7 @@ def scan_anomalies():
                         {"$set": {
                             "metric_value": f"{round(avg_marks, 1)}%",
                             "message": f"Mean coursework grade plummeted to {round(avg_marks, 1)}%. Remedial support advised.",
-                            "created_at": datetime.now().isoformat()
+                            "updated_at": datetime.now().isoformat()
                         }}
                     )
 
@@ -1841,25 +1915,28 @@ def broadcast_alert_digest():
 
     high_risk_list = []
     if _db_ok():
-        recent_preds = list(predictions_col.find(
-            {"risk": {"$regex": "high", "$options": "i"}}
-        ).sort("_id", -1).limit(10))
+        recent_alerts = list(alerts_col.find({
+            "status": {"$ne": "acknowledged"},
+            "severity": {"$in": ["critical", "high", "CRITICAL", "HIGH"]}
+        }).sort("_id", -1).limit(10))
 
-        for p in recent_preds:
+        for a in recent_alerts:
+            sid = a.get("student_id")
+            pred = predictions_col.find_one({"student_id": {"$in": [sid, str(sid)]}}, sort=[("_id", -1)])
+            action = "Schedule parent-mentor meeting & remedial tutoring" if str(a.get("severity")).lower() == "critical" else "Review attendance & LMS engagement"
+            
             high_risk_list.append({
-                "name": p.get("student_name", "Student"),
-                "attendance": p.get("attendance", "N/A"),
-                "marks": p.get("marks", "N/A"),
-                "lms": p.get("lms_activity", "N/A"),
-                "risk": "HIGH RISK",
-                "action": "Schedule parent-mentor meeting & remedial tutoring"
+                "name": a.get("student_name", "Student"),
+                "attendance": pred.get("attendance", "N/A") if pred else "N/A",
+                "marks": pred.get("marks", "N/A") if pred else "N/A",
+                "lms": pred.get("lms_activity", "N/A") if pred else "N/A",
+                "risk": str(a.get("severity", "HIGH")).upper() + " RISK",
+                "action": action
             })
 
     if not high_risk_list:
         high_risk_list = [
-            {"name": "Hamza Tariq", "attendance": "45", "marks": "40", "lms": "30", "risk": "HIGH RISK", "action": "Urgent academic counselor intervention required"},
-            {"name": "Ayesha Noor", "attendance": "38", "marks": "35", "lms": "25", "risk": "HIGH RISK", "action": "Breached 75% attendance rule & failing grade"},
-            {"name": "Daniyal Raza", "attendance": "50", "marks": "52", "lms": "48", "risk": "HIGH RISK", "action": "LMS activity collapse & assessment drop"}
+            {"name": "Hamza Tariq", "attendance": "45", "marks": "40", "lms": "30", "risk": "HIGH RISK", "action": "Urgent academic counselor intervention required"}
         ]
 
     table_rows = ""
@@ -2062,34 +2139,69 @@ def get_all_alerts():
         aid = request.args.get("id")
         if aid and _db_ok():
             oid = _safe_object_id(aid)
-            alerts_col.delete_one({"_id": oid} if oid else {"id": _normalize_id(aid)})
-            return jsonify({"success": True, "message": "Alert dismissed!"})
-    alerts = get_alerts()
-    return jsonify({"success": True, "alerts": alerts})
+            query = {"_id": oid} if oid else {"id": _normalize_id(aid)}
+            alerts_col.update_one(query, {"$set": {"status": "acknowledged"}})
+            return jsonify({"success": True, "message": "Alert acknowledged!"})
+    
+    if not _db_ok():
+        return jsonify({"success": True, "alerts": []})
+
+    role = session.get("role")
+    query = {"status": {"$ne": "acknowledged"}}
+
+    if role == "teacher":
+        teacher_id = session.get("user_id")
+        t_query = _id_query(teacher_id)
+        
+        batches = list(batches_col.find({"teacher_id": t_query}))
+        bids = [b.get("id") for b in batches]
+        
+        sb = list(student_batches_col.find({"batch_id": {"$in": bids + [str(x) for x in bids]}}))
+        sids = [s["student_id"] for s in sb]
+        
+        sids_str_int = list(set([str(x) for x in sids] + [_normalize_id(x) for x in sids]))
+        
+        if not sids_str_int:
+            query["student_id"] = {"$in": ["no_students_found"]} 
+        else:
+            query["student_id"] = {"$in": sids_str_int}
+            
+    alerts = list(alerts_col.find(query).sort("_id", -1))
+    return jsonify({"success": True, "alerts": _to_dicts(alerts)})
 
 @app.route("/api/analytics/alerts/acknowledge-all", methods=["POST"])
 @login_required
 def acknowledge_all_alerts():
-    """Acknowledge and clear all alerts at once."""
     if not _db_ok():
         return jsonify({"success": False, "message": "Database offline"}), 500
 
     try:
-        # Optional: Sirf current user ke alerts clear karein
-        # Agar saare alerts clear karne hain toh filter hata dein
+        role = session.get("role")
+        query = {"status": {"$ne": "acknowledged"}}
+
+        if role == "teacher":
+            teacher_id = session.get("user_id")
+            t_query = _id_query(teacher_id)
+            batches = list(batches_col.find({"teacher_id": t_query}))
+            bids = [b.get("id") for b in batches]
+            sb = list(student_batches_col.find({"batch_id": {"$in": bids + [str(x) for x in bids]}}))
+            sids = [s["student_id"] for s in sb]
+            sids_str_int = list(set([str(x) for x in sids] + [_normalize_id(x) for x in sids]))
+            
+            if sids_str_int:
+                query["student_id"] = {"$in": sids_str_int}
+            else:
+                query["student_id"] = {"$in": ["no_students_found"]}
+
+        total_before = alerts_col.count_documents(query)
+        result = alerts_col.update_many(query, {"$set": {"status": "acknowledged"}})
         
-        # Total count before deletion
-        total_before = alerts_col.count_documents({})
-        
-        # Saare alerts delete karein
-        result = alerts_col.delete_many({})
-        
-        log_event("Alerts Acknowledged", f"User {session.get('user_email')} acknowledged {result.deleted_count} alerts")
+        log_event("Alerts Acknowledged", f"User {session.get('user_email')} acknowledged {result.modified_count} alerts")
         
         return jsonify({
             "success": True,
-            "message": f"Successfully acknowledged and cleared {result.deleted_count} alerts.",
-            "deleted_count": result.deleted_count,
+            "message": f"Successfully acknowledged and cleared {result.modified_count} alerts.",
+            "deleted_count": result.modified_count,
             "total_before": total_before
         })
     except Exception as e:
@@ -2101,6 +2213,118 @@ def acknowledge_all_alerts():
 def get_system_status():
     status = system_status()
     return jsonify({"success": True, "status": status})
+
+
+# ============================================================
+# ADMIN DATA MATRIX ROUTES (Fixes N/A values and Purge actions)
+# ============================================================
+
+@app.route("/api/admin/assignments", methods=["GET"])
+@role_required(["administrator"])
+def admin_get_assignments():
+    if _db_ok():
+        assignments = list(assignments_col.find().sort("_id", -1))
+        result = []
+        for a in assignments:
+            ad = _to_dict(a)
+            batch = batches_col.find_one({"$or": [{"id": ad.get("batch_id")}, {"id": str(ad.get("batch_id"))}]})
+            ad["batch_name"] = batch["name"] if batch else "Unassigned"
+            teacher = _find_user_by_id(ad.get("teacher_id"))
+            ad["teacher_name"] = teacher.get("name") if teacher else "Unassigned"
+            result.append(ad)
+        return jsonify({"success": True, "assignments": result})
+    return jsonify({"success": True, "assignments": []})
+
+@app.route("/api/admin/marks", methods=["GET"])
+@role_required(["administrator"])
+def admin_get_marks():
+    if _db_ok():
+        submissions = list(student_marks_col.find().sort("submitted_at", -1))
+        result = []
+        for s in submissions:
+            sd = _to_dict(s)
+            assignment = assignments_col.find_one({"$or": [{"id": sd.get("assignment_id")}, {"id": str(sd.get("assignment_id"))}]})
+            if assignment:
+                sd["assignment_title"] = assignment.get("title")
+                sd["total_marks"] = assignment.get("total_marks")
+            user = _find_user_by_id(sd.get("student_id"))
+            sd["student_name"] = user.get("name") if user else "Unknown"
+            result.append(sd)
+        return jsonify({"success": True, "marks": result})
+    return jsonify({"success": True, "marks": []})
+
+# --- PREDICTIONS ROUTE (Fixes N/A Probability and Grade) ---
+@app.route("/api/admin/predictions", methods=["GET"])
+@role_required(["administrator"])
+def admin_get_predictions():
+    if _db_ok():
+        preds = list(predictions_col.find().sort("_id", -1))
+        result = []
+        for p in preds:
+            pd_dict = _to_dict(p)
+            # Map database 'confidence' to frontend 'probability'
+            conf = pd_dict.get("confidence", 0)
+            pd_dict["probability"] = f"{round(float(conf) * 100, 1)}%" if conf else "N/A"
+            
+            # Ensure predicted_grade exists
+            if not pd_dict.get("predicted_grade"):
+                pd_dict["predicted_grade"] = "N/A"
+                
+            result.append(pd_dict)
+        return jsonify({"success": True, "predictions": result})
+    return jsonify({"success": True, "predictions": []})
+
+@app.route("/api/admin/predictions/<pred_id>", methods=["DELETE"])
+@role_required(["administrator"])
+def admin_delete_prediction(pred_id):
+    if _db_ok():
+        oid = _safe_object_id(pred_id)
+        query = {"_id": oid} if oid else {"id": _normalize_id(pred_id)}
+        predictions_col.delete_one(query)
+        return jsonify({"success": True, "message": "Prediction record purged successfully."})
+    return jsonify({"success": False, "message": "Database offline."}), 500
+
+
+# --- HDFS RECORDS ROUTE (Fixes N/A GPA, LMS, and Batch) ---
+@app.route("/api/admin/records", methods=["GET"])
+@role_required(["administrator"])
+def admin_get_records():
+    if _db_ok():
+        records = list(educational_records_col.find().sort("_id", -1))
+        result = []
+        for r in records:
+            rd = _to_dict(r)
+            sid = rd.get("student_id")
+            
+            # Fetch student name
+            student = _find_user_by_id(sid)
+            rd["student_name"] = student.get("name") if student else "Unknown Student"
+            
+            # Resolve Assigned Batch
+            batch_assignment = student_batches_col.find_one({"student_id": {"$in": [sid, str(sid)]}})
+            if batch_assignment:
+                batch = batches_col.find_one({"$or": [{"id": batch_assignment.get("batch_id")}, {"id": str(batch_assignment.get("batch_id"))}]})
+                rd["batch_name"] = batch.get("name") if batch else "Unassigned"
+            else:
+                rd["batch_name"] = "Unassigned"
+                
+            # Map Database keys to Frontend keys
+            rd["gpa_index"] = f"{rd.get('marks', 'N/A')}%"
+            rd["lms_score"] = f"{rd.get('lms_activity', 'N/A')}%"
+            
+            result.append(rd)
+        return jsonify({"success": True, "records": result})
+    return jsonify({"success": True, "records": []})
+
+@app.route("/api/admin/records/<record_id>", methods=["DELETE"])
+@role_required(["administrator"])
+def admin_delete_record(record_id):
+    if _db_ok():
+        oid = _safe_object_id(record_id)
+        query = {"_id": oid} if oid else {"id": _normalize_id(record_id)}
+        educational_records_col.delete_one(query)
+        return jsonify({"success": True, "message": "Educational record purged successfully."})
+    return jsonify({"success": False, "message": "Database offline."}), 500
 
 
 # ============================================================
